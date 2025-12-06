@@ -1,0 +1,6 @@
+{
+  "scripts": {
+    "test:api": "bash test-api.sh"
+  }
+}
+
