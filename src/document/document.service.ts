@@ -1,4 +1,17 @@
 import { Injectable, Logger } from '@nestjs/common'
+import { ConfigService } from '@nestjs/config'
+import axios, { AxiosInstance } from 'axios'
+import FormData from 'form-data'
+
+/**
+ * 保存文件响应接口
+ */
+export interface SaveDocumentFileResponse {
+  code: number
+  data: any
+  status: number
+  msg?: string
+}
 
 /**
  * 文档接口
@@ -27,73 +40,39 @@ export interface Material {
 }
 
 /**
- * 协作者接口
+ * 获取素材响应接口
  */
-export interface Collaborator {
-  userId: number
-  nickname: string
-  avatar: string
-  role: string
-  addTime: string
+export interface GetMaterialResponse {
+  code: number
+  data: Material[]
+  status: number
+  msg?: string
 }
 
 @Injectable()
 export class DocumentService {
   private readonly logger = new Logger(DocumentService.name)
+  private readonly httpClient: AxiosInstance
+  private readonly javaApiBase: string
   
-  // 模拟数据库存储
+  // 文档数据存储（用于协同编辑）
   private documents = new Map<string, Document>()
-  private documentMaterials = new Map<string, Material[]>()
-  private documentCollaborators = new Map<string, Collaborator[]>()
 
-  constructor() {
-    this.initTestData()
-  }
+  constructor(private configService: ConfigService) {
+    // 从环境变量获取 Java 后端地址
+    this.javaApiBase =
+      this.configService.get<string>('JAVA_API_URL') || 'http://192.168.8.104:8080'
 
-  /**
-   * 初始化测试数据
-   */
-  private initTestData() {
-    const testDoc: Document = {
-      id: 'demo-doc',
-      title: '协同文档示例',
-      content: '<p>欢迎使用协同文档编辑器！</p><p>这是一个支持多人实时协作的文档。</p>',
-      createTime: new Date().toISOString(),
-      updateTime: new Date().toISOString(),
-      version: 'V1.0',
-      tags: ['文档', '协作', '演示'],
-      creatorId: 1,
-      creatorName: '管理员',
-    }
-    this.documents.set('demo-doc', testDoc)
+    this.logger.log(`Java API 地址: ${this.javaApiBase}`)
 
-    // 初始化参考素材
-    this.documentMaterials.set('demo-doc', [
-      {
-        id: 1,
-        title: '文档名称1.doc',
-        date: '2025-11-12 12:00',
-        author: '张三/李四/王五',
-        content:
-          '<p>这是文档名称1的参考内容。</p><p><strong>要点：</strong></p><ul><li>用户注册登录功能</li><li>文档创建和编辑功能</li></ul>',
+    // 创建 axios 实例
+    this.httpClient = axios.create({
+      baseURL: this.javaApiBase,
+      timeout: 30000,
+      headers: {
+        'Content-Type': 'application/json',
       },
-      {
-        id: 2,
-        title: '需求分析报告.pdf',
-        date: '2025-11-10 09:30',
-        author: '李四',
-        content:
-          '<p>这里是需求分析报告的摘要内容。</p><ol><li>性能需求：响应时间 < 1s</li><li>安全需求：数据加密存储</li></ol>',
-      },
-      {
-        id: 3,
-        title: '竞品分析.pptx',
-        date: '2025-11-08 15:45',
-        author: '王五',
-        content:
-          '<p>竞品分析结论：</p><p>我们的优势在于<strong>协同编辑</strong>的实时性和流畅度。</p>',
-      },
-    ])
+    })
   }
 
   /**
@@ -168,8 +147,6 @@ export class DocumentService {
     }
 
     this.documents.delete(id)
-    this.documentMaterials.delete(id)
-    this.documentCollaborators.delete(id)
 
     this.logger.log(`🗑️  删除文档: ${id}`)
     return true
@@ -192,105 +169,45 @@ export class DocumentService {
 
   /**
    * 获取文档参考素材
+   * 调用 Java 后端: POST /api/users/getMaterial
+   * @param id 文档ID
+   * @returns 素材列表
    */
-  getMaterials(id: string): Material[] {
-    return this.documentMaterials.get(id) || []
-  }
+  async getMaterials(id: string): Promise<GetMaterialResponse> {
+    const url = '/api/users/getMaterial'
+    this.logger.log(`调用 Java 接口: ${this.javaApiBase}${url}`)
+    this.logger.log(`参数: id=${id}`)
 
-  /**
-   * 添加参考素材
-   */
-  addMaterial(id: string, data: any): Material {
-    if (!this.documentMaterials.has(id)) {
-      this.documentMaterials.set(id, [])
+    try {
+      const response = await this.httpClient.post(url, { id })
+
+      this.logger.log(`Java 接口响应: ${JSON.stringify(response.data)}`)
+
+      return {
+        code: response.data.code || 200,
+        data: response.data.data || [],
+        status: response.data.status || response.status,
+        msg: response.data.msg || 'success',
+      }
+    } catch (error) {
+      this.logger.error(`调用 Java 获取素材接口失败: ${error.message}`)
+
+      if (error.response) {
+        return {
+          code: error.response.data?.code || 500,
+          data: [],
+          status: error.response.status || 500,
+          msg: error.response.data?.msg || '获取素材失败',
+        }
+      }
+
+      return {
+        code: 500,
+        data: [],
+        status: 500,
+        msg: '获取素材失败: ' + error.message,
+      }
     }
-
-    const materials = this.documentMaterials.get(id)
-    const newMaterial: Material = {
-      id: Date.now(),
-      title: data.title || '未命名素材',
-      content: data.content || '',
-      author: data.author || '未知',
-      date: new Date().toISOString().replace('T', ' ').slice(0, 16),
-    }
-
-    materials.push(newMaterial)
-    this.logger.log(`📎 添加素材: ${newMaterial.title} -> 文档 ${id}`)
-
-    return newMaterial
-  }
-
-  /**
-   * 删除参考素材
-   */
-  deleteMaterial(docId: string, materialId: number): boolean {
-    const materials = this.documentMaterials.get(docId)
-    if (!materials) {
-      return false
-    }
-
-    const index = materials.findIndex((m) => m.id === materialId)
-    if (index === -1) {
-      return false
-    }
-
-    materials.splice(index, 1)
-    return true
-  }
-
-  /**
-   * 获取文档协作者
-   */
-  getCollaborators(id: string): Collaborator[] {
-    return this.documentCollaborators.get(id) || []
-  }
-
-  /**
-   * 添加协作者
-   */
-  addCollaborator(id: string, data: any): { success: boolean; data?: Collaborator; error?: string } {
-    if (!this.documentCollaborators.has(id)) {
-      this.documentCollaborators.set(id, [])
-    }
-
-    const collaborators = this.documentCollaborators.get(id)
-
-    // 检查是否已存在
-    const existing = collaborators.find((c) => c.userId === data.userId)
-    if (existing) {
-      return { success: false, error: '用户已是协作者' }
-    }
-
-    const newCollaborator: Collaborator = {
-      userId: data.userId,
-      nickname: data.nickname || '用户' + data.userId,
-      avatar: data.avatar || '',
-      role: data.role || 'editor',
-      addTime: new Date().toISOString(),
-    }
-
-    collaborators.push(newCollaborator)
-    this.logger.log(`👥 添加协作者: ${newCollaborator.nickname} -> 文档 ${id}`)
-
-    return { success: true, data: newCollaborator }
-  }
-
-  /**
-   * 移除协作者
-   */
-  removeCollaborator(docId: string, userId: number): boolean {
-    const collaborators = this.documentCollaborators.get(docId)
-    if (!collaborators) {
-      return false
-    }
-
-    const index = collaborators.findIndex((c) => c.userId === userId)
-    if (index === -1) {
-      return false
-    }
-
-    collaborators.splice(index, 1)
-    return true
   }
 
   /**
@@ -394,6 +311,61 @@ export class DocumentService {
       title: title || doc?.title || '文档',
       content: content || doc?.content || '',
       exportTime: new Date().toISOString(),
+    }
+  }
+
+  /**
+   * 保存文档文件
+   * 调用 Java 后端: POST /api/users/saveFile
+   * @param id 文档ID
+   * @param file 文件对象
+   * @returns 保存结果
+   */
+  async saveDocumentFile(
+    id: string,
+    file: Express.Multer.File,
+  ): Promise<SaveDocumentFileResponse> {
+    const url = '/api/users/saveFile'
+    this.logger.log(`调用 Java 接口: ${this.javaApiBase}${url}`)
+    this.logger.log(`参数: id=${id}, 文件名=${file.originalname}, 大小=${file.size} bytes`)
+
+    try {
+      // 创建 FormData
+      const formData = new FormData()
+      formData.append('id', id)
+      formData.append('file', file.buffer, {
+        filename: file.originalname,
+        contentType: file.mimetype,
+      })
+
+      const response = await this.httpClient.post(url, formData, {
+        headers: {
+          ...formData.getHeaders(),
+        },
+        timeout: 60000, // 文件上传可能较大，超时设为60秒
+      })
+
+      this.logger.log(`Java 接口响应: ${JSON.stringify(response.data)}`)
+
+      return {
+        code: response.data.code || 200,
+        data: response.data.data,
+        status: response.data.status || response.status,
+        msg: response.data.msg || 'success',
+      }
+    } catch (error) {
+      this.logger.error(`调用 Java 保存文件接口失败: ${error.message}`)
+
+      if (error.response) {
+        return {
+          code: error.response.data?.code || 500,
+          data: null,
+          status: error.response.status || 500,
+          msg: error.response.data?.msg || '保存文件失败',
+        }
+      }
+
+      throw error
     }
   }
 }

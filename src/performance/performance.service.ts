@@ -16,6 +16,9 @@ const mockData = [
     scope: '可编辑',
     status: '编辑中',
     createTime: '2024-01-10 10:00:00',
+    updateTime: '2024-01-10 12:00:00',
+    version: 'V1.0',
+    tags: '文档,协作,演示'
   },
   {
     id: 2,
@@ -29,6 +32,9 @@ const mockData = [
     scope: '可编辑',
     status: '待审核',
     createTime: '2024-01-15 14:30:00',
+    updateTime: '2024-01-15 16:30:00',
+    version: 'V1.0',
+    tags: '文档,协作,演示'
   },
   {
     id: 3,
@@ -41,7 +47,10 @@ const mockData = [
     author: '王五',
     scope: '可编辑',
     status: '审核通过',
-    createTime: '2024-01-20 09:15:00',
+    createTime: '2024-01-15 14:30:00',
+    updateTime: '2024-01-15 16:30:00',
+    version: 'V1.0',
+    tags: '文档,协作,演示'
   },
   {
     id: 4,
@@ -55,6 +64,9 @@ const mockData = [
     scope: '可编辑',
     status: '发布成功',
     createTime: '2024-01-25 16:45:00',
+    updateTime: '2024-01-25 18:45:00',
+    version: 'V1.0',
+    tags: '文档,协作,演示'
   },
   {
     id: 5,
@@ -68,6 +80,9 @@ const mockData = [
     scope: '可编辑',
     status: '编辑中',
     createTime: '2024-02-01 11:20:00',
+    updateTime: '2024-02-01 13:20:00',
+    version: 'V1.0',
+    tags: '文档,协作,演示'
   },
   {
     id: 6,
@@ -81,6 +96,9 @@ const mockData = [
     scope: '可编辑',
     status: '审核通过',
     createTime: '2024-02-05 13:50:00',
+    updateTime: '2024-02-05 15:50:00',
+    version: 'V1.0',
+    tags: '文档,协作,演示'
   },
   {
     id: 7,
@@ -94,6 +112,9 @@ const mockData = [
     scope: '可编辑',
     status: '待审核',
     createTime: '2024-02-10 15:30:00',
+    updateTime: '2024-02-10 17:30:00',
+    version: 'V1.0',
+    tags: '文档,协作,演示'
   },
   {
     id: 8,
@@ -107,6 +128,9 @@ const mockData = [
     scope: '可编辑',
     status: '发布成功',
     createTime: '2024-02-15 08:40:00',
+    updateTime: '2024-02-15 10:40:00',
+    version: 'V1.0',
+    tags: '文档,协作,演示'
   },
   {
     id: 9,
@@ -120,6 +144,9 @@ const mockData = [
     scope: '可管理',
     status: '编辑中',
     createTime: '2024-03-01 10:30:00',
+    updateTime: '2024-03-01 12:30:00',
+    version: 'V1.0',
+    tags: '文档,协作,演示'
   },
   {
     id: 10,
@@ -133,6 +160,9 @@ const mockData = [
     scope: '可编辑',
     status: '审核通过',
     createTime: '2024-03-05 14:20:00',
+    updateTime: '2024-03-05 16:20:00',
+    version: 'V1.0',
+    tags: '文档,协作,演示'
   },
   {
     id: 11,

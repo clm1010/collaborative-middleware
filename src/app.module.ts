@@ -3,6 +3,7 @@ import { ConfigModule } from '@nestjs/config'
 import { PerformanceModule } from './performance/performance.module'
 import { DocumentModule } from './document/document.module'
 import { CollaborationModule } from './collaboration/collaboration.module'
+import { UsersModule } from './users/users.module'
 
 @Module({
   imports: [
@@ -13,6 +14,7 @@ import { CollaborationModule } from './collaboration/collaboration.module'
     PerformanceModule,
     DocumentModule,
     CollaborationModule,
+    UsersModule,
   ],
 })
 export class AppModule {}
