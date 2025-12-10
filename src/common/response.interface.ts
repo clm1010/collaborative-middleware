@@ -9,10 +9,11 @@ export interface ApiResponse<T = any> {
 
 /**
  * 创建成功响应
+ * 注意：code 使用 200 与前端 axios 封装保持一致
  */
 export function successResponse<T>(data: T, msg = 'success'): ApiResponse<T> {
   return {
-    code: 0,
+    code: 200,
     data,
     msg,
   }

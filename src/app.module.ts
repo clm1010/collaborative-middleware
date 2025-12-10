@@ -4,6 +4,9 @@ import { PerformanceModule } from './performance/performance.module'
 import { DocumentModule } from './document/document.module'
 import { CollaborationModule } from './collaboration/collaboration.module'
 import { UsersModule } from './users/users.module'
+import { TemplateModule } from './template/template.module'
+import { MarkdownModule } from './markdown/markdown.module'
+import { MarkdownCollaborationModule } from './markdown-collaboration/markdown-collaboration.module'
 
 @Module({
   imports: [
@@ -15,6 +18,9 @@ import { UsersModule } from './users/users.module'
     DocumentModule,
     CollaborationModule,
     UsersModule,
+    TemplateModule,
+    MarkdownModule,
+    MarkdownCollaborationModule,
   ],
 })
 export class AppModule {}

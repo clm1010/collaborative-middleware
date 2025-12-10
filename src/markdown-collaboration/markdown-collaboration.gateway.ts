@@ -14,21 +14,22 @@ const MESSAGE_SYNC = 0
 const MESSAGE_AWARENESS = 1
 
 /**
- * WebSocket 协同编辑网关
+ * Markdown 协同编辑 WebSocket 网关
+ * 使用 /markdown 路径命名空间，与 document 协同完全隔离
  */
 @WebSocketGateway({
   transports: ['websocket'],
-  path: '/collaboration'
+  path: '/markdown',
 })
-export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisconnect {
+export class MarkdownCollaborationGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer()
   server: Server
 
-  private readonly logger = new Logger(CollaborationGateway.name)
+  private readonly logger = new Logger(MarkdownCollaborationGateway.name)
 
-  // 存储每个文档的 Y.Doc 实例
-  private docs = new Map<string, Y.Doc>()
-  // 存储每个文档的连接
+  // 存储每个 Markdown 文档的 Y.Doc 实例（独立于 document 模块）
+  private markdownDocs = new Map<string, Y.Doc>()
+  // 存储每个 Markdown 文档的连接
   private docConnections = new Map<string, Set<any>>()
   // 存储用户ID到连接的映射（用于踢掉同一用户的旧连接）
   private userConnections = new Map<string, any>()
@@ -65,7 +66,7 @@ export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisco
 
         // 清理死连接
         deadConnections.forEach((client) => {
-          this.logger.warn(`💀 心跳超时，清理连接: ${docName} (${client.userInfo?.name || '未知用户'})`)
+          this.logger.warn(`💀 [Markdown] 心跳超时，清理连接: ${docName} (${client.userInfo?.name || '未知用户'})`)
           this.cleanupConnection(client)
           try {
             client.terminate()
@@ -76,7 +77,7 @@ export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisco
       })
     }, this.HEARTBEAT_INTERVAL)
 
-    this.logger.log('💓 心跳检测已启动')
+    this.logger.log('💓 [Markdown] 心跳检测已启动')
   }
 
   /**
@@ -92,7 +93,7 @@ export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisco
     const connections = this.docConnections.get(docName)
     if (connections) {
       connections.delete(client)
-      this.logger.log(`📊 文档 ${docName} 当前连接数: ${connections.size}`)
+      this.logger.log(`📊 [Markdown] 文档 ${docName} 当前连接数: ${connections.size}`)
 
       // 广播 awareness 移除消息
       if (awarenessClientId !== undefined && connections.size > 0) {
@@ -101,13 +102,13 @@ export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisco
 
       // 如果没有连接了，5分钟后清理文档
       if (connections.size === 0) {
-        this.logger.log(`📊 文档 ${docName} 暂无连接`)
+        this.logger.log(`📊 [Markdown] 文档 ${docName} 暂无连接`)
         setTimeout(() => {
           const currentConnections = this.docConnections.get(docName)
           if (!currentConnections || currentConnections.size === 0) {
-            this.docs.delete(docName)
+            this.markdownDocs.delete(docName)
             this.docConnections.delete(docName)
-            this.logger.log(`🗑️  清理文档: ${docName}`)
+            this.logger.log(`🗑️ [Markdown] 清理文档: ${docName}`)
           }
         }, 5 * 60 * 1000)
       }
@@ -115,7 +116,7 @@ export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisco
 
     // 从用户连接映射中移除
     if (userInfo?.id) {
-      const userKey = `${docName}:${userInfo.id}`
+      const userKey = `markdown:${docName}:${userInfo.id}`
       if (this.userConnections.get(userKey) === client) {
         this.userConnections.delete(userKey)
       }
@@ -161,17 +162,17 @@ export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisco
         }
       })
 
-      this.logger.log(`📢 广播用户离线: clientId=${clientId}`)
+      this.logger.log(`📢 [Markdown] 广播用户离线: clientId=${clientId}`)
     } catch (e) {
-      this.logger.error(`广播 awareness 移除失败: ${e.message}`)
+      this.logger.error(`[Markdown] 广播 awareness 移除失败: ${e.message}`)
     }
   }
 
   /**
-   * 获取或创建文档
+   * 获取或创建 Markdown 文档
    */
   private getYDoc(docName: string): Y.Doc {
-    let doc = this.docs.get(docName)
+    let doc = this.markdownDocs.get(docName)
     if (!doc) {
       doc = new Y.Doc()
       doc['name'] = docName
@@ -195,8 +196,8 @@ export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisco
         }
       })
 
-      this.docs.set(docName, doc)
-      this.logger.log(`📄 创建新文档: ${docName}`)
+      this.markdownDocs.set(docName, doc)
+      this.logger.log(`📄 [Markdown] 创建新文档: ${docName}`)
     }
     return doc
   }
@@ -208,9 +209,12 @@ export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisco
     try {
       const request = args[0]
 
-      // 解析 URL 获取文档名称，去掉 /collaboration 前缀
+      // 解析 URL 获取文档名称
+      // URL 格式: /markdown/{documentId}?params...
       const url = new URL(request.url, `http://${request.headers.host}`)
-      let docName = url.pathname.replace(/^\/collaboration\/?/, '') || 'default'
+      // 移除 /markdown 前缀，获取文档ID
+      let docName = url.pathname.replace(/^\/markdown\/?/, '') || 'default'
+      // 如果 docName 为空或仍然包含斜杠，进一步清理
       docName = docName.split('/').filter(Boolean)[0] || 'default'
 
       // 获取用户信息
@@ -220,7 +224,7 @@ export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisco
         color: url.searchParams.get('userColor') || '#409EFF',
       }
 
-      this.logger.log(`✅ WebSocket 连接: ${docName}`)
+      this.logger.log(`✅ [Markdown] WebSocket 连接: ${docName}`)
       this.logger.log(`   用户: ${userInfo.name} (${userInfo.id})`)
 
       // 获取或创建文档
@@ -233,10 +237,10 @@ export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisco
       const connections = this.docConnections.get(docName)
 
       // 检查同一用户是否已有连接（踢掉旧连接）
-      const userKey = `${docName}:${userInfo.id}`
+      const userKey = `markdown:${docName}:${userInfo.id}`
       const existingConnection = this.userConnections.get(userKey)
       if (existingConnection && existingConnection !== client) {
-        this.logger.warn(`⚠️ 用户 ${userInfo.name} 重复连接，踢掉旧连接`)
+        this.logger.warn(`⚠️ [Markdown] 用户 ${userInfo.name} 重复连接，踢掉旧连接`)
         this.cleanupConnection(existingConnection)
         try {
           existingConnection.close(1000, 'Replaced by new connection')
@@ -265,13 +269,13 @@ export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisco
 
       // 监听连接关闭
       client.on('close', () => {
-        this.logger.log(`🔌 连接关闭: ${docName} (${userInfo.name})`)
+        this.logger.log(`🔌 [Markdown] 连接关闭: ${docName} (${userInfo.name})`)
         this.cleanupConnection(client)
       })
 
       // 监听连接错误
       client.on('error', (error: Error) => {
-        this.logger.error(`❗ 连接错误: ${docName} (${userInfo.name}) - ${error.message}`)
+        this.logger.error(`❗ [Markdown] 连接错误: ${docName} (${userInfo.name}) - ${error.message}`)
         this.cleanupConnection(client)
       })
 
@@ -283,9 +287,9 @@ export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisco
       // 启动心跳检测（首次连接时）
       this.startHeartbeat()
 
-      this.logger.log(`📊 当前文档 ${docName} 的连接数: ${connections.size}`)
+      this.logger.log(`📊 [Markdown] 当前文档 ${docName} 的连接数: ${connections.size}`)
     } catch (error) {
-      this.logger.error(`连接处理错误: ${error.message}`)
+      this.logger.error(`[Markdown] 连接处理错误: ${error.message}`)
     }
   }
 
@@ -298,7 +302,7 @@ export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisco
 
     if (!docName) return
 
-    this.logger.log(`❌ WebSocket 断开: ${docName} (${userInfo?.name || '未知用户'})`)
+    this.logger.log(`❌ [Markdown] WebSocket 断开: ${docName} (${userInfo?.name || '未知用户'})`)
     this.cleanupConnection(client)
   }
 
@@ -360,7 +364,7 @@ export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisco
               // 记录该连接的 awareness clientId
               if (ws.awarenessClientId === undefined) {
                 ws.awarenessClientId = clientId
-                this.logger.log(`📝 记录 awareness clientId: ${clientId} (${ws.userInfo?.name})`)
+                this.logger.log(`📝 [Markdown] 记录 awareness clientId: ${clientId} (${ws.userInfo?.name})`)
               }
             }
           } catch (e) {
@@ -380,7 +384,7 @@ export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisco
         }
       }
     } catch (e) {
-      this.logger.error(`处理消息出错: ${e.message}`)
+      this.logger.error(`[Markdown] 处理消息出错: ${e.message}`)
     }
   }
 

@@ -6,7 +6,7 @@ import FormData from 'form-data'
 /**
  * 保存文件响应接口
  */
-export interface SaveDocumentFileResponse {
+export interface SaveMarkdownFileResponse {
   code: number
   data: any
   status: number
@@ -14,9 +14,9 @@ export interface SaveDocumentFileResponse {
 }
 
 /**
- * 文档接口
+ * Markdown 文档接口
  */
-export interface Document {
+export interface MarkdownDocument {
   id: string
   title: string
   content: string
@@ -50,20 +50,20 @@ export interface GetMaterialResponse {
 }
 
 @Injectable()
-export class DocumentService {
-  private readonly logger = new Logger(DocumentService.name)
+export class MarkdownService {
+  private readonly logger = new Logger(MarkdownService.name)
   private readonly httpClient: AxiosInstance
   private readonly javaApiBase: string
-  
-  // 文档数据存储（用于协同编辑）
-  private documents = new Map<string, Document>()
+
+  // Markdown 文档数据存储（用于协同编辑）
+  private documents = new Map<string, MarkdownDocument>()
 
   constructor(private configService: ConfigService) {
     // 从环境变量获取 Java 后端地址
     this.javaApiBase =
       this.configService.get<string>('JAVA_API_URL') || 'http://192.168.8.104:8080'
 
-    this.logger.log(`Java API 地址: ${this.javaApiBase}`)
+    this.logger.log(`Markdown Service - Java API 地址: ${this.javaApiBase}`)
 
     // 创建 axios 实例
     this.httpClient = axios.create({
@@ -76,17 +76,17 @@ export class DocumentService {
   }
 
   /**
-   * 获取文档详情
+   * 获取 Markdown 文档详情
    */
-  getDocument(id: string): Document {
+  getMarkdown(id: string): MarkdownDocument {
     let doc = this.documents.get(id)
 
     // 如果文档不存在，自动创建一个新文档
     if (!doc) {
       doc = {
         id,
-        title: '新文档',
-        content: '<p></p>',
+        title: '新模板文档',
+        content: '',
         createTime: new Date().toISOString(),
         updateTime: new Date().toISOString(),
         version: 'V1.0',
@@ -95,16 +95,16 @@ export class DocumentService {
         creatorName: '系统',
       }
       this.documents.set(id, doc)
-      this.logger.log(`📄 创建新文档: ${id}`)
+      this.logger.log(`📄 创建新 Markdown 文档: ${id}`)
     }
 
     return doc
   }
 
   /**
-   * 保存文档
+   * 保存 Markdown 文档
    */
-  saveDocument(data: any): Document {
+  saveMarkdown(data: any): MarkdownDocument {
     const { id, title, content } = data
 
     let doc = this.documents.get(id)
@@ -121,8 +121,8 @@ export class DocumentService {
       // 创建新文档
       doc = {
         id,
-        title: title || '未命名文档',
-        content: content || '<p></p>',
+        title: title || '未命名模板',
+        content: content || '',
         createTime: new Date().toISOString(),
         updateTime: new Date().toISOString(),
         version: 'V1.0',
@@ -133,29 +133,29 @@ export class DocumentService {
     }
 
     this.documents.set(id, doc)
-    this.logger.log(`💾 保存文档: ${id} (${doc.title})`)
+    this.logger.log(`💾 保存 Markdown 文档: ${id} (${doc.title})`)
 
     return doc
   }
 
   /**
-   * 删除文档
+   * 删除 Markdown 文档
    */
-  deleteDocument(id: string): boolean {
+  deleteMarkdown(id: string): boolean {
     if (!this.documents.has(id)) {
       return false
     }
 
     this.documents.delete(id)
 
-    this.logger.log(`🗑️  删除文档: ${id}`)
+    this.logger.log(`🗑️  删除 Markdown 文档: ${id}`)
     return true
   }
 
   /**
-   * 获取文档列表
+   * 获取 Markdown 文档列表
    */
-  getDocumentList() {
+  getMarkdownList() {
     return Array.from(this.documents.values()).map((doc) => ({
       id: doc.id,
       title: doc.title,
@@ -168,7 +168,7 @@ export class DocumentService {
   }
 
   /**
-   * 获取文档参考素材
+   * 获取参考素材
    * 调用 Java 后端: POST /api/users/getMaterial
    * @param id 文档ID
    * @returns 素材列表
@@ -219,7 +219,7 @@ export class DocumentService {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${title || '文档'}</title>
+  <title>${title || '模板文档'}</title>
   <style>
     body {
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
@@ -270,32 +270,15 @@ export class DocumentService {
     a { color: #2563eb; text-decoration: underline; }
     img { max-width: 100%; height: auto; }
     mark { background: #fef08a; padding: 0 2px; }
-    .header {
-      text-align: center;
-      border-bottom: 2px solid #eee;
-      padding-bottom: 20px;
-      margin-bottom: 30px;
-    }
-    .footer {
-      margin-top: 40px;
-      padding-top: 20px;
-      border-top: 1px solid #eee;
-      text-align: center;
-      color: #999;
-      font-size: 12px;
-    }
   </style>
 </head>
 <body>
-  <div class="header">
-    <h1>${title || '文档'}</h1>
-    <p style="color: #666; font-size: 14px;">导出时间: ${new Date().toLocaleString('zh-CN')}</p>
-  </div>
+  <h1>${title || '模板文档'}</h1>
   <div class="content">
     ${content || ''}
   </div>
-  <div class="footer">
-    <p>本文档由协同编辑系统导出</p>
+  <div style="margin-top: 40px; padding-top: 20px; border-top: 1px solid #eee; text-align: center; color: #999; font-size: 12px;">
+    <p>本文档由模板写作系统导出</p>
   </div>
 </body>
 </html>`
@@ -308,23 +291,23 @@ export class DocumentService {
     const doc = this.documents.get(id)
     return {
       ...doc,
-      title: title || doc?.title || '文档',
+      title: title || doc?.title || '模板文档',
       content: content || doc?.content || '',
       exportTime: new Date().toISOString(),
     }
   }
 
   /**
-   * 保存文档文件
+   * 保存 Markdown 文件
    * 调用 Java 后端: POST /api/users/saveFile
    * @param id 文档ID (可选)
    * @param file 文件对象
    * @returns 保存结果
    */
-  async saveDocumentFile(
+  async saveMarkdownFile(
     id: string | undefined,
     file: Express.Multer.File,
-  ): Promise<SaveDocumentFileResponse> {
+  ): Promise<SaveMarkdownFileResponse> {
     const url = '/api/users/saveFile'
     this.logger.log(`调用 Java 接口: ${this.javaApiBase}${url}`)
     this.logger.log(`参数: id=${id || '未提供'}, 文件名=${file.originalname}, 大小=${file.size} bytes`)
@@ -360,6 +343,23 @@ export class DocumentService {
         throw new Error(error.response.data?.msg || '保存文件失败')
       }
 
+      throw error
+    }
+  }
+
+  /**
+   * 提交审核
+   * 调用 Java 后端
+   */
+  async submitAudit(data: { id: string; auditor: string; comment?: string }): Promise<any> {
+    const url = '/api/template/submitAudit'
+    this.logger.log(`提交审核: ${JSON.stringify(data)}`)
+
+    try {
+      const response = await this.httpClient.post(url, data)
+      return response.data
+    } catch (error) {
+      this.logger.error(`提交审核失败: ${error.message}`)
       throw error
     }
   }

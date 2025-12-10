@@ -35,12 +35,48 @@ export class PerformanceController {
   }
 
   /**
-   * 创建演训方案
+   * 获取分页列表数据
+   * POST /training/performance/pageList
+   * @param body.tabType 标签页类型: 'review' | 'publish' | undefined(recent 查询全部)
+   */
+  @Post('pageList')
+  async getPageList(@Body() body: any) {
+    try {
+      const data = await this.performanceService.getPageList(body)
+      return successResponse(data)
+    } catch (error) {
+      throw new HttpException(
+        errorResponse(error.message || '获取数据失败', 500),
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      )
+    }
+  }
+
+  /**
+   * 创建演训方案 (Mock)
    */
   @Post('create')
   create(@Body() body: any) {
     const data = this.performanceService.create(body)
     return successResponse(data, '创建成功')
+  }
+
+  /**
+   * 新建筹划方案 - 调用 Java 后端
+   * 直接返回 Java 后端的响应，不再包装
+   */
+  @Post('newData')
+  async createNewData(@Body() body: any) {
+    try {
+      const data = await this.performanceService.createNewData(body)
+      // 直接返回 Java 后端的响应，不用 successResponse 包装
+      return data
+    } catch (error) {
+      throw new HttpException(
+        errorResponse(error.message || '创建失败', 500),
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      )
+    }
   }
 
   /**
@@ -90,28 +126,38 @@ export class PerformanceController {
   }
 
   /**
-   * 提交审核
+   * 提交审核 - 调用 Java 后端
+   * 直接返回 Java 后端的响应，不再包装
    */
   @Post('audit/submit')
-  submitAudit(@Body() body: any) {
-    const result = this.performanceService.submitAudit(body)
-    if (result.success) {
-      return successResponse(result.data, result.message)
-    } else {
-      throw new HttpException(errorResponse(result.message, 404), HttpStatus.NOT_FOUND)
+  async submitAudit(@Body() body: any) {
+    try {
+      const data = await this.performanceService.submitAudit(body)
+      // 直接返回 Java 后端的响应，不用 successResponse 包装
+      return data
+    } catch (error) {
+      throw new HttpException(
+        errorResponse(error.message || '提交审核失败', 500),
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      )
     }
   }
 
   /**
-   * 发布文档
+   * 发布文档 - 调用 Java 后端
+   * 直接返回 Java 后端的响应，不再包装
    */
   @Post('publish')
-  publishDocument(@Body() body: any) {
-    const result = this.performanceService.publishDocument(body)
-    if (result.success) {
-      return successResponse(result.data, result.message)
-    } else {
-      throw new HttpException(errorResponse(result.message, 404), HttpStatus.NOT_FOUND)
+  async publishDocument(@Body() body: any) {
+    try {
+      const data = await this.performanceService.publishDocument(body)
+      // 直接返回 Java 后端的响应，不用 successResponse 包装
+      return data
+    } catch (error) {
+      throw new HttpException(
+        errorResponse(error.message || '发布文档失败', 500),
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      )
     }
   }
 
