@@ -46,7 +46,7 @@ export class UsersService {
 
   /**
    * 权限校验
-   * 调用 Java 后端: POST /api/users/getPermissionCheck
+   * 调用 Java 后端: POST /api/getPlan/getPermissionCheck
    * @param id 文档ID
    * @param userId 用户ID
    * @returns 权限校验结果
@@ -55,7 +55,7 @@ export class UsersService {
     id: string,
     userId: string,
   ): Promise<PermissionCheckResponse> {
-    const url = '/api/users/getPermissionCheck'
+    const url = '/api/getPlan/getPermissionCheck'
     this.logger.log(`调用 Java 接口: ${this.javaApiBase}${url}`)
     this.logger.log(`参数: id=${id}, userId=${userId}`)
 
@@ -94,12 +94,12 @@ export class UsersService {
 
   /**
    * 获取文件流
-   * 调用 Java 后端: GET /api/users/getfileStream
+   * 调用 Java 后端: GET /api/getPlan/getfileStream
    * @param id 文档ID
    * @returns 文件流数据
    */
   async getFileStream(id: number): Promise<FileStreamResponse> {
-    const url = '/api/users/getfileStream'
+    const url = '/api/getPlan/getfileStream'
     this.logger.log(`调用 Java 接口: ${this.javaApiBase}${url}`)
     this.logger.log(`参数: id=${id}`)
 

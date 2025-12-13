@@ -54,14 +54,13 @@ export class DocumentService {
   private readonly logger = new Logger(DocumentService.name)
   private readonly httpClient: AxiosInstance
   private readonly javaApiBase: string
-  
+
   // 文档数据存储（用于协同编辑）
   private documents = new Map<string, Document>()
 
   constructor(private configService: ConfigService) {
     // 从环境变量获取 Java 后端地址
-    this.javaApiBase =
-      this.configService.get<string>('JAVA_API_URL') || 'http://192.168.8.104:8080'
+    this.javaApiBase = this.configService.get<string>('JAVA_API_URL') || 'http://192.168.8.104:8080'
 
     this.logger.log(`Java API 地址: ${this.javaApiBase}`)
 
@@ -169,12 +168,12 @@ export class DocumentService {
 
   /**
    * 获取文档参考素材
-   * 调用 Java 后端: POST /api/users/getMaterial
+   * 调用 Java 后端: POST /api/getPlan/getMaterial
    * @param id 文档ID
    * @returns 素材列表
    */
   async getMaterials(id: string): Promise<GetMaterialResponse> {
-    const url = '/api/users/getMaterial'
+    const url = '/api/getPlan/getMaterial'
     this.logger.log(`调用 Java 接口: ${this.javaApiBase}${url}`)
     this.logger.log(`参数: id=${id}`)
 
@@ -316,7 +315,7 @@ export class DocumentService {
 
   /**
    * 保存文档文件
-   * 调用 Java 后端: POST /api/users/saveFile
+   * 调用 Java 后端: POST /api/getPlan/saveFile
    * @param id 文档ID (可选)
    * @param file 文件对象
    * @returns 保存结果
@@ -325,9 +324,21 @@ export class DocumentService {
     id: string | undefined,
     file: Express.Multer.File,
   ): Promise<SaveDocumentFileResponse> {
-    const url = '/api/users/saveFile'
+    const url = '/api/getPlan/saveFile'
     this.logger.log(`调用 Java 接口: ${this.javaApiBase}${url}`)
-    this.logger.log(`参数: id=${id || '未提供'}, 文件名=${file.originalname}, 大小=${file.size} bytes`)
+
+    // 解码文件名(处理中文乱码问题)
+    //multer 接收到的 originalname 可能是 Latin-1 编码的,需要转换为 UTF-8
+    let decodedFilename = file.originalname
+    try {
+      // 尝试将 Latin-1 编码的字符串转换为 UTF-8
+      decodedFilename = Buffer.from(file.originalname, 'latin1').toString('utf-8')
+    } catch (e) {
+      // 如果转换失败,保持原始文件名
+      this.logger.warn(`文件名解码失败,使用原始文件名: ${file.originalname}`)
+    }
+
+    this.logger.log(`参数:id=${id || '未提供'},文件名=${decodedFilename},大小=${file.size}bytes`)
 
     try {
       // 创建 FormData
@@ -337,7 +348,7 @@ export class DocumentService {
         formData.append('id', id)
       }
       formData.append('file', file.buffer, {
-        filename: file.originalname,
+        filename: decodedFilename,
         contentType: file.mimetype,
       })
 
@@ -364,4 +375,3 @@ export class DocumentService {
     }
   }
 }
-

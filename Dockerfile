@@ -22,7 +22,7 @@ COPY . .
 RUN pnpm -v
 
 # 构建 TypeScript 项目
-RUN npm run build
+RUN npm run build:prod
 
 
 # ==============================

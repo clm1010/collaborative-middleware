@@ -93,26 +93,53 @@ export class PerformanceController {
   }
 
   /**
-   * 删除演训方案（支持单个和批量删除）
+   * 编辑演训方案数据
+   * 调用 Java 后端: POST /api/tbTemplate/update
+   */
+  @Post('editData')
+  async editData(@Body() body: any) {
+    try {
+      const data = await this.performanceService.editData(body)
+      return data
+    } catch (error) {
+      throw new HttpException(
+        errorResponse(error.message || '编辑失败', 500),
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      )
+    }
+  }
+
+  /**
+   * 删除演训方案（支持调 用 Java
+   * 后端 Java 后端: POST/api/getplan/delData
+   * 参数格式: ["1", "2", "3"]
    */
   @Delete('delete')
-  delete(@Body() body: { ids: number[] }) {
+  async delete(@Body() body: { ids: (number | string)[] }) {
     const { ids } = body
 
     if (!ids || !Array.isArray(ids) || ids.length === 0) {
-      throw new HttpException(
-        errorResponse('请提供要删除的ID数组', 400),
-        HttpStatus.BAD_REQUEST,
-      )
+      throw new HttpException(errorResponse('请提供要删除的ID数组', 400), HttpStatus.BAD_REQUEST)
     }
 
-    const result = this.performanceService.delete(ids)
+    try {
+      const result = await this.performanceService.delete(ids)
 
-    if (result.deletedIds.length > 0) {
-      const msg = `成功删除 ${result.deletedIds.length} 条数据${result.notFoundIds.length > 0 ? `，${result.notFoundIds.length} 条数据不存在` : ''}`
-      return successResponse(result, msg)
-    } else {
-      throw new HttpException(errorResponse('所有数据都不存在', 404), HttpStatus.NOT_FOUND)
+      if (result.deletedIds.length > 0) {
+        const msg = `成功删除 ${result.deletedIds.length} 条数据${result.notFoundIds.length > 0 ? `，${result.notFoundIds.length} 条数据不存在` : ''}`
+        return successResponse(result, msg)
+      } else {
+        throw new HttpException(errorResponse('所有数据都不存在', 404), HttpStatus.NOT_FOUND)
+      }
+    } catch (error) {
+      if (error instanceof HttpException) {
+        throw error
+      } else {
+        throw new HttpException(
+          errorResponse(error.message || '删除失败', 500),
+          HttpStatus.INTERNAL_SERVER_ERROR,
+        )
+      }
     }
   }
 

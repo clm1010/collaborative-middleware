@@ -131,17 +131,17 @@ const mockData = [
  */
 const categories = [
   { id: '0', fileType: '全部' },
-  { id: '1', fileType: '企图立案' },
-  { id: '2', fileType: '作战计划' },
-  { id: '3', fileType: '演训方案' },
-  { id: '4', fileType: '作战文书' },
-  { id: '5', fileType: '导调计划' },
-  { id: '6', fileType: '作战想定' },
-  { id: '7', fileType: '战绩战报' },
-  { id: '8', fileType: '总结报告' },
-  { id: '9', fileType: '通知' },
-  { id: '10', fileType: '通告' },
-  { id: '11', fileType: '评估结果' },
+  { id: 'QTLA', fileType: '企图立案' },
+  { id: 'ZZJH', fileType: '作战计划' },
+  { id: 'YXFA', fileType: '演训方案' },
+  { id: 'ZZWS', fileType: '作战文书' },
+  { id: 'DTJH', fileType: '导调计划' },
+  { id: 'ZZXD', fileType: '作战想定' },
+  { id: 'ZJZG', fileType: '战绩战报' },
+  { id: 'ZJBG', fileType: '总结报告' },
+  { id: 'TZ', fileType: '通知' },
+  { id: 'TG', fileType: '通告' },
+  { id: 'PGJG', fileType: '评估结果' },
 ]
 
 // 驳回历史 Mock 数据
@@ -184,8 +184,7 @@ export class PerformanceService {
 
   constructor(private configService: ConfigService) {
     // 从环境变量获取 Java 后端地址，默认为 192.168.8.104:8080
-    this.javaApiBase =
-      this.configService.get<string>('JAVA_API_URL') || 'http://192.168.8.104:8080'
+    this.javaApiBase = this.configService.get<string>('JAVA_API_URL') || 'http://192.168.8.104:8080'
 
     this.logger.log(`Java API 地址: ${this.javaApiBase}`)
 
@@ -248,17 +247,17 @@ export class PerformanceService {
     if (fileType && fileType !== '0') {
       // 根据 id 找到对应的分类名称
       const categoryIdMap: Record<string, string> = {
-        '1': '企图立案',
-        '2': '作战计划',
-        '3': '演训方案',
-        '4': '作战文书',
-        '5': '导调计划',
-        '6': '作战想定',
-        '7': '战绩战报',
-        '8': '总结报告',
-        '9': '通知',
-        '10': '通告',
-        '11': '评估结果',
+        QTLA: '企图立案',
+        ZZJH: '作战计划',
+        YXFA: '演训方案',
+        ZZWS: '作战文书',
+        DTJH: '导调计划',
+        ZZXD: '作战想定',
+        ZJZG: '战绩战报',
+        ZJBG: '总结报告',
+        TZ: '通知',
+        TG: '通告',
+        PGJG: '评估结果',
       }
       const categoryName = categoryIdMap[fileType]
       if (categoryName) {
@@ -269,8 +268,9 @@ export class PerformanceService {
     // 5. 演训等级
     if (drillLevel) {
       const levelMap = {
-        strategy: '战略级',
-        tactics: '战术级',
+        ZLJ: '战略级',
+        ZYJ: '战役级',
+        ZSJ: '战术级',
       }
       const levelText = levelMap[drillLevel] || drillLevel
       filteredData = filteredData.filter((item) => item.drillLevel === levelText)
@@ -339,7 +339,15 @@ export class PerformanceService {
    * @param data 查询参数
    * @param data.pageNo 页码
    * @param data.pageSize 每页条数
-   * @param data.tabType 标签页类型: 'review'(审核列表) | 'publish'(文档发布) | undefined(最近文档-全部)
+   * @param data.tabType 标签页类型: 'recent'(最近文档) | 'review'(审核列表) | 'publish'(文档发布)
+   * @param data.name 方案名称
+   * @param data.uploadTime 上传时间范围，格式："2025-12-10, 2025-12-11"
+   * @param data.status 文档状态
+   * @param data.fileType 文档分类（文字）
+   * @param data.drillTheme 演训主题
+   * @param data.drillType 演训类型
+   * @param data.drillLevel 演训等级
+   * @param data.docType 文档类型
    * @returns { list: Array, total: number }
    */
   async getPageList(data: any) {
@@ -348,34 +356,96 @@ export class PerformanceService {
     // ========================================================================================
     // 【Mock 数据逻辑】- 联调时注释此段代码 (从这里开始)
     // ========================================================================================
-    const { pageNo = 1, pageSize = 10, tabType } = data
+    // const {
+    //   pageNo = 1,
+    //   pageSize = 10,
+    //   tabType,
+    //   name,
+    //   uploadTime,
+    //   status,
+    //   fileType,
+    //   drillTheme,
+    //   drillType,
+    //   drillLevel,
+    //   docType,
+    // } = data
 
-    // 使用 mockData 数据源
-    let filteredData = [...mockData]
+    // // 使用 mockData 数据源
+    // let filteredData = [...mockData]
 
-    // 根据 tabType 过滤数据
-    if (tabType === 'review') {
-      // 审核列表：待审核、审核通过、驳回
-      filteredData = filteredData.filter((item) =>
-        ['待审核', '审核通过', '驳回'].includes(item.status),
-      )
-    } else if (tabType === 'publish') {
-      // 文档发布：发布成功
-      filteredData = filteredData.filter((item) => item.status === '发布成功')
-    }
-    // recent 或不传 tabType：返回全部数据
+    // // 1. 根据 tabType 过滤数据
+    // if (tabType === 'review') {
+    //   // 审核列表：待审核、审核通过、驳回
+    //   filteredData = filteredData.filter((item) =>
+    //     ['待审核', '审核通过', '驳回'].includes(item.status),
+    //   )
+    // } else if (tabType === 'publish') {
+    //   // 文档发布：发布成功
+    //   filteredData = filteredData.filter((item) => item.status === '发布成功')
+    // }
+    // // recent 或不传 tabType：返回全部数据
 
-    // 本地分页处理
-    const total = filteredData.length
-    const page = parseInt(pageNo)
-    const size = parseInt(pageSize)
-    const start = (page - 1) * size
-    const end = start + size
-    const list = filteredData.slice(start, end)
+    // // 2. 方案名称（模糊搜索）
+    // if (name) {
+    //   filteredData = filteredData.filter((item) =>
+    //     item.name.toLowerCase().includes(name.toLowerCase()),
+    //   )
+    // }
 
-    this.logger.log(`返回 Mock 数据: 总数=${total}, 当前页=${list.length}条`)
+    // // 3. 上传时间范围过滤（格式："2025-12-10, 2025-12-11"）
+    // if (uploadTime && typeof uploadTime === 'string') {
+    //   const [startDate, endDate] = uploadTime.split(', ').map((d: string) => d.trim())
+    //   if (startDate && endDate) {
+    //     filteredData = filteredData.filter((item) => {
+    //       const itemDate = item.createTime.split(' ')[0] // 提取日期部分
+    //       return itemDate >= startDate && itemDate <= endDate
+    //     })
+    //   }
+    // }
 
-    return { list, total }
+    // // 4. 文档状态过滤
+    // if (status) {
+    //   filteredData = filteredData.filter((item) => item.status === status)
+    // }
+
+    // // 5. 文档分类过滤（左侧分类）- fileType 传递的是文字，如 "演训方案"、"作战计划"
+    // if (fileType && fileType !== '全部') {
+    //   filteredData = filteredData.filter((item) => item.docCategory === fileType)
+    // }
+
+    // // 6. 演训主题过滤
+    // if (drillTheme) {
+    //   filteredData = filteredData.filter((item) =>
+    //     item.drillTheme?.toLowerCase().includes(drillTheme.toLowerCase()),
+    //   )
+    // }
+
+    // // 7. 演训类型过滤
+    // if (drillType) {
+    //   filteredData = filteredData.filter((item) => item.drillType === drillType)
+    // }
+
+    // // 8. 演训等级过滤
+    // if (drillLevel) {
+    //   filteredData = filteredData.filter((item) => item.drillLevel === drillLevel)
+    // }
+
+    // // 9. 文档类型过滤（docType 在 mockData 中使用 docCategory 代替）
+    // if (docType) {
+    //   filteredData = filteredData.filter((item) => (item as any).docType === docType)
+    // }
+
+    // // 本地分页处理
+    // const total = filteredData.length
+    // const page = parseInt(pageNo)
+    // const size = parseInt(pageSize)
+    // const start = (page - 1) * size
+    // const end = start + size
+    // const list = filteredData.slice(start, end)
+
+    // this.logger.log(`返回 Mock 数据: 总数=${total}, 当前页=${list.length}条`)
+
+    // return { list, total }
     // ========================================================================================
     // 【Mock 数据逻辑】- 联调时注释此段代码 (到这里结束)
     // ========================================================================================
@@ -383,31 +453,31 @@ export class PerformanceService {
     // ========================================================================================
     // 【Java 后端调用】- 联调时解开此段代码 (从这里开始)
     // ========================================================================================
-    // const url = '/api/users/getPageList'
-    // this.logger.log(`调用 Java 接口: ${this.javaApiBase}${url}`)
-    // this.logger.log(`请求参数: ${JSON.stringify(data)}`)
-    //
-    // try {
-    //   // POST 请求 Java 后端
-    //   const response = await this.httpClient.post(url, data)
-    //   this.logger.log(`Java 接口响应: ${JSON.stringify(response.data)}`)
-    //
-    //   // Java 后端返回格式: { code: 200, data: { list: [], total: 0 }, msg: '...' }
-    //   // 需要返回 data 部分: { list, total }
-    //   if (response.data && response.data.code === 200) {
-    //     return response.data.data // 返回 { list, total }
-    //   } else {
-    //     throw new Error(response.data?.msg || '获取数据失败')
-    //   }
-    // } catch (error) {
-    //   this.logger.error(`调用 Java 接口失败: ${error.message}`)
-    //   if (error.response) {
-    //     this.logger.error(`HTTP 状态: ${error.response.status}`)
-    //     this.logger.error(`响应数据: ${JSON.stringify(error.response.data)}`)
-    //     throw new Error(error.response.data?.msg || '获取数据失败')
-    //   }
-    //   throw error
-    // }
+    const url = '/api/getPlan/getPageList'
+    this.logger.log(`调用 Java 接口: ${this.javaApiBase}${url}`)
+    this.logger.log(`请求参数: ${JSON.stringify(data)}`)
+
+    try {
+      // POST 请求 Java 后端
+      const response = await this.httpClient.post(url, data)
+      this.logger.log(`Java 接口响应: ${JSON.stringify(response.data)}`)
+
+      // Java 后端返回格式: { code: 200, data: { list: [], total: 0 }, msg: '...' }
+      // 需要返回 data 部分: { list, total }
+      if (response.data && response.data.code === 200) {
+        return response.data.data // 返回 { list, total }
+      } else {
+        throw new Error(response.data?.msg || '获取数据失败')
+      }
+    } catch (error) {
+      this.logger.error(`调用 Java 接口失败: ${error.message}`)
+      if (error.response) {
+        this.logger.error(`HTTP 状态: ${error.response.status}`)
+        this.logger.error(`响应数据: ${JSON.stringify(error.response.data)}`)
+        throw new Error(error.response.data?.msg || '获取数据失败')
+      }
+      throw error
+    }
     // ========================================================================================
     // 【Java 后端调用】- 联调时解开此段代码 (到这里结束)
     // ========================================================================================
@@ -441,10 +511,10 @@ export class PerformanceService {
 
   /**
    * 新建筹划方案 - 调用 Java 后端
-   * POST /api/users/newData
+   * POST /api/getPlan/newData
    */
   async createNewData(data: any) {
-    const url = '/api/users/newData'
+    const url = '/api/getPlan/newData'
     this.logger.log(`调用 Java 接口: ${this.javaApiBase}${url}`)
     this.logger.log(`参数: ${JSON.stringify(data)}`)
 
@@ -485,25 +555,115 @@ export class PerformanceService {
   }
 
   /**
-   * 删除演训方案（支持单个和批量删除）
+   * 编辑演训方案数据 - 调用 Java 后端
+   * POST /api/tbTemplate/update
    */
-  delete(ids: number[]) {
+  async editData(data: any) {
+    const url = '/api/tbTemplate/update'
+    this.logger.log(`调用 Java 接口: ${this.javaApiBase}${url}`)
+    this.logger.log(`参数: ${JSON.stringify(data)}`)
+
+    try {
+      const response = await this.httpClient.post(url, data)
+
+      this.logger.log(`Java 接口响应: ${JSON.stringify(response.data)}`)
+
+      // 直接返回 Java 后端的响应
+      return response.data
+    } catch (error) {
+      this.logger.error(`调用 Java 编辑数据接口失败: ${error.message}`)
+
+      if (error.response) {
+        this.logger.error(`HTTP 错误状态: ${error.response.status}`)
+        this.logger.error(`HTTP 错误数据: ${JSON.stringify(error.response.data)}`)
+        throw new Error(error.response.data?.msg || '编辑失败')
+      }
+
+      throw error
+    }
+  }
+
+  /**
+   * 删除演训方案（支持单个和批量删除）
+   *
+   *
+   * @param ids ID数组，如 ["1", "2", "3"]
+   */
+  async delete(ids: (number | string)[]) {
     this.logger.log(`删除演训方案: ${JSON.stringify(ids)}`)
 
-    const deletedIds = []
-    const notFoundIds = []
+    // ========================================================================================
+    // 【Java后端调用】- (从这里开始)
+    // ========================================================================================
 
-    ids.forEach((id) => {
-      const index = this.data.findIndex((item) => item.id === parseInt(id as any))
-      if (index !== -1) {
-        this.data.splice(index, 1)
-        deletedIds.push(id)
-      } else {
-        notFoundIds.push(id)
+    const url = '/api/getPlan/delData'
+    this.logger.log(`调用 Java 接口: ${this.javaApiBase}${url}`)
+
+    // 转换为字符串数组,适配 Java 后端
+    const requestData = ids.map((id) => String(id))
+    this.logger.log(`请求参数: ${JSON.stringify(requestData)}`)
+    try {
+      const response = await this.httpClient.post(url, requestData)
+      this.logger.log(`Java 接口响应: ${JSON.stringify(response.data)}`)
+      if (response.data) {
+        if (response.data.code !== undefined) {
+          if (response.data.code === 200 || response.data.code === 0) {
+            return {
+              deletedIds: ids,
+              notFoundIds: [],
+              success: true,
+            }
+          } else {
+            throw new Error(response.data.msg || response.data.message || '删除失败')
+          }
+        }
+        return {
+          deletedIds: [],
+          notFoundIds: ids,
+          success: true,
+        }
       }
-    })
+      return {
+        deletedIds: [],
+        notFoundIds: ids,
+        success: true,
+      }
+    } catch (error) {
+      this.logger.error(`删除 Java 接口失败: ${error.message}`)
+      if (error.response) {
+        this.logger.error(`HTTP 错误状态: ${error.response.status}`)
+        this.logger.error(`响应数据: ${JSON.stringify(error.response.data)}`)
+        throw new Error(error.response.data?.msg || error.response.data?.message || '删除失败')
+      }
+      throw error
+    }
 
-    return { deletedIds, notFoundIds }
+    // ========================================================================================
+    // 【Java后端调用】- (到这里结束)
+    // ========================================================================================
+
+    // ========================================================================================
+    // 【Mock 数据逻辑】- 联调时注释此段代码 (从这里开始)
+    // ========================================================================================
+
+    // const deletedIds = []
+    // const notFoundIds = []
+
+    // ids.forEach((id) => {
+    //   const index = this.data.findIndex((item) => item.id === parseInt(id as any))
+    //   if (index !== -1) {
+    //     this.data.splice(index, 1)
+    //     deletedIds.push(id)
+    //   } else {
+    //     notFoundIds.push(id)
+    //   }
+    // })
+
+    // return { deletedIds, notFoundIds }
+
+    // ========================================================================================
+    // 【Mock 数据逻辑】- 联调时注释此段代码 (到这里结束)
+    // ========================================================================================
   }
 
   /**
@@ -516,10 +676,10 @@ export class PerformanceService {
 
   /**
    * 提交审核 - 调用 Java 后端
-   * POST /api/users/submitReview
+   * POST /api/getPlan/submitReview
    */
   async submitAudit(data: any) {
-    const url = '/api/users/submitReview'
+    const url = '/api/getPlan/submitReview'
     this.logger.log(`调用 Java 接口: ${this.javaApiBase}${url}`)
     this.logger.log(`参数: ${JSON.stringify(data)}`)
 
@@ -556,10 +716,10 @@ export class PerformanceService {
 
   /**
    * 发布文档 - 调用 Java 后端
-   * POST /api/users/publishData
+   * POST /api/getPlan/publishData
    */
   async publishDocument(data: any) {
-    const url = '/api/users/publishData'
+    const url = '/api/getPlan/publishData'
     this.logger.log(`调用 Java 接口: ${this.javaApiBase}${url}`)
     this.logger.log(`参数: ${JSON.stringify(data)}`)
 
@@ -614,20 +774,20 @@ export class PerformanceService {
     if (index !== -1) {
       // 更新状态为"驳回"
       this.data[index].status = '驳回'
-      
+
       // 添加驳回记录
       if (!this.rejectHistory[id]) {
         this.rejectHistory[id] = []
       }
-      
+
       const newRecord = {
         rejectBy: rejectBy || 'admin',
         rejectTime: new Date().toISOString().replace('T', ' ').substring(0, 19),
         reason: reason,
       }
-      
+
       this.rejectHistory[id].unshift(newRecord) // 最新记录排在前面
-      
+
       this.logger.log(`方案 ${id} 状态已更新为: 驳回`)
       return {
         success: true,
