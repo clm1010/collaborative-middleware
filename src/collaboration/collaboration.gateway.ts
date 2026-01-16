@@ -115,9 +115,13 @@ export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisco
 
     // 从用户连接映射中移除
     if (userInfo?.id) {
-      const userKey = `${docName}:${userInfo.id}`
+      // 使用与 handleConnection 相同的 key 生成逻辑
+      const userKey = userInfo.deviceId
+        ? `${docName}:${userInfo.id}:${userInfo.deviceId}`
+        : `${docName}:${userInfo.id}`
       if (this.userConnections.get(userKey) === client) {
         this.userConnections.delete(userKey)
+        this.logger.log(`🔑 移除用户连接映射: ${userKey}`)
       }
     }
   }
@@ -125,43 +129,53 @@ export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisco
   /**
    * 广播 awareness 移除消息
    * 通知其他客户端某个用户已离线
+   * 
+   * 格式参考 y-protocols awareness 协议:
+   * - MESSAGE_AWARENESS (1 byte)
+   * - awareness update data:
+   *   - clients length (varuint)
+   *   - for each client:
+   *     - clientId (varuint)
+   *     - clock (varuint) 
+   *     - state JSON string length + content
    */
   private broadcastAwarenessRemove(docName: string, clientId: number, connections: Set<any>) {
     try {
       // 构造 awareness 移除消息
-      // 格式: [MESSAGE_AWARENESS, length, clientId, clock, "null"]
       const encoder = this.createEncoder()
       this.writeVarUint(encoder, MESSAGE_AWARENESS)
 
-      // awareness 更新数据
-      const awarenessEncoder = this.createEncoder()
-      this.writeVarUint(awarenessEncoder, 1) // 1 个客户端更新
-      this.writeVarUint(awarenessEncoder, clientId) // 客户端 ID
-      this.writeVarUint(awarenessEncoder, 1) // clock (递增值)
+      // 写入客户端数量 (1个)
+      this.writeVarUint(encoder, 1)
+      // 写入客户端 ID
+      this.writeVarUint(encoder, clientId)
+      // 写入 clock (使用较大的值确保覆盖旧状态)
+      this.writeVarUint(encoder, Date.now() % 0xFFFFFFFF)
 
       // 写入 "null" 字符串表示删除该客户端的状态
+      // y-protocols 使用 JSON 字符串，null 表示删除
       const nullStr = 'null'
-      this.writeVarUint(awarenessEncoder, nullStr.length)
+      this.writeVarUint(encoder, nullStr.length)
       for (let i = 0; i < nullStr.length; i++) {
-        awarenessEncoder.data.push(nullStr.charCodeAt(i))
-      }
-
-      // 将 awareness 数据作为数组写入
-      const awarenessData = this.toUint8Array(awarenessEncoder)
-      for (let i = 0; i < awarenessData.length; i++) {
-        encoder.data.push(awarenessData[i])
+        encoder.data.push(nullStr.charCodeAt(i))
       }
 
       const message = this.toUint8Array(encoder)
 
       // 广播给所有连接
+      let sentCount = 0
       connections.forEach((conn) => {
         if (conn.readyState === WebSocket.OPEN) {
-          conn.send(message)
+          try {
+            conn.send(message)
+            sentCount++
+          } catch (sendErr) {
+            this.logger.warn(`发送 awareness 移除消息失败: ${sendErr.message}`)
+          }
         }
       })
 
-      this.logger.log(`📢 广播用户离线: clientId=${clientId}`)
+      this.logger.log(`📢 广播用户离线: clientId=${clientId}, 已发送给 ${sentCount} 个连接`)
     } catch (e) {
       this.logger.error(`广播 awareness 移除失败: ${e.message}`)
     }
@@ -213,15 +227,17 @@ export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisco
       let docName = url.pathname.replace(/^\/collaboration\/?/, '') || 'default'
       docName = docName.split('/').filter(Boolean)[0] || 'default'
 
-      // 获取用户信息
+      // 获取用户信息（包含设备ID，支持同一用户多设备连接）
       const userInfo = {
         id: url.searchParams.get('userId') || String(Date.now()),
         name: decodeURIComponent(url.searchParams.get('userName') || '匿名用户'),
         color: url.searchParams.get('userColor') || '#409EFF',
+        deviceId: url.searchParams.get('deviceId') || '', // 设备唯一标识
       }
 
       this.logger.log(`✅ WebSocket 连接: ${docName}`)
       this.logger.log(`   用户: ${userInfo.name} (${userInfo.id})`)
+      this.logger.log(`   设备ID: ${userInfo.deviceId || '未提供'}`)
 
       // 获取或创建文档
       const doc = this.getYDoc(docName)
@@ -232,14 +248,17 @@ export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisco
       }
       const connections = this.docConnections.get(docName)
 
-      // 检查同一用户是否已有连接（踢掉旧连接）
-      const userKey = `${docName}:${userInfo.id}`
+      // 检查同一用户+同一设备是否已有连接（踢掉旧连接）
+      // 使用 userId + deviceId 作为唯一标识，允许同一用户在不同设备上同时连接
+      const userKey = userInfo.deviceId
+        ? `${docName}:${userInfo.id}:${userInfo.deviceId}`
+        : `${docName}:${userInfo.id}` // 兼容未提供 deviceId 的旧客户端
       const existingConnection = this.userConnections.get(userKey)
       if (existingConnection && existingConnection !== client) {
-        this.logger.warn(`⚠️ 用户 ${userInfo.name} 重复连接，踢掉旧连接`)
+        this.logger.warn(`⚠️ 用户 ${userInfo.name} 在同一设备重复连接，踢掉旧连接 (key: ${userKey})`)
         this.cleanupConnection(existingConnection)
         try {
-          existingConnection.close(1000, 'Replaced by new connection')
+          existingConnection.close(1000, 'Replaced by new connection from same device')
         } catch (e) {
           try {
             existingConnection.terminate()

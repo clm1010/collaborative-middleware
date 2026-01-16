@@ -37,7 +37,8 @@ async function bootstrap() {
 
   // 启动服务
   const PORT = process.env.COLLABORATIVE_MIDDLEWARE_PORT || 3001
-  await app.listen(PORT)
+  // 监听 0.0.0.0 允许外部访问（局域网内其他电脑）
+  await app.listen(PORT, '0.0.0.0')
 
   // 获取本机IP地址（用于生产环境显示）
   const nets = networkInterfaces()
@@ -54,20 +55,14 @@ async function bootstrap() {
   logger.log(`🚀 协同编辑中间件已启动！`)
   logger.log(`📊 环境: ${NODE_ENV}`)
   logger.log(`📡 本地地址: http://localhost:${PORT}`)
-  if (isProduction) {
-    logger.log(`📡 网络地址: http://${localIp}:${PORT}`)
-  }
+  logger.log(`📡 网络地址: http://${localIp}:${PORT}`)
   logger.log(`🔗 CORS配置: ${corsOrigin === '*' ? '允许所有来源' : corsOrigin}`)
   logger.log(`\n🔌 WebSocket 协同编辑服务:`)
   logger.log(`   WS /collaboration - 文档协同编辑 (Y.js + Tiptap)`)
   logger.log(`   WS /markdown      - Markdown 协同编辑 (Y.js + Milkdown)`)
   logger.log(`\n📍 连接示例:`)
-  logger.log(`   ws://localhost:${PORT}/collaboration/{docId}?userId=xxx&userName=xxx&userColor=xxx`)
-  logger.log(`   ws://localhost:${PORT}/markdown/{docId}?userId=xxx&userName=xxx&userColor=xxx`)
-  if (isProduction) {
-    logger.log(`   ws://${localIp}:${PORT}/collaboration/{docId}`)
-    logger.log(`   ws://${localIp}:${PORT}/markdown/{docId}`)
-  }
+  logger.log(`   本地: ws://localhost:${PORT}/collaboration/{docId}`)
+  logger.log(`   网络: ws://${localIp}:${PORT}/collaboration/{docId}`)
   logger.log(`=================================\n`)
 }
 
