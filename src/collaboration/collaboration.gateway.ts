@@ -4,7 +4,7 @@ import {
   OnGatewayDisconnect,
   WebSocketServer,
 } from '@nestjs/websockets'
-import { Logger } from '@nestjs/common'
+import { Logger, OnModuleDestroy } from '@nestjs/common'
 import * as WebSocket from 'ws'
 import * as Y from 'yjs'
 import { Server } from 'ws'
@@ -20,7 +20,7 @@ const MESSAGE_AWARENESS = 1
   transports: ['websocket'],
   path: '/collaboration'
 })
-export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisconnect {
+export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisconnect, OnModuleDestroy {
   @WebSocketServer()
   server: Server
 
@@ -28,6 +28,8 @@ export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisco
 
   // 存储每个文档的 Y.Doc 实例
   private docs = new Map<string, Y.Doc>()
+  // 存储文档清理定时器（用于取消）
+  private docCleanupTimers = new Map<string, NodeJS.Timeout>()
   // 存储每个文档的连接
   private docConnections = new Map<string, Set<any>>()
   // 存储用户ID到连接的映射（用于踢掉同一用户的旧连接）
@@ -80,6 +82,53 @@ export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisco
   }
 
   /**
+   * 模块销毁时清理资源
+   */
+  onModuleDestroy() {
+    this.logger.log('🛑 模块销毁，开始清理资源...')
+
+    // 清理心跳定时器
+    if (this.heartbeatInterval) {
+      clearInterval(this.heartbeatInterval)
+      this.heartbeatInterval = null
+      this.logger.log('💔 心跳定时器已清理')
+    }
+
+    // 清理所有文档清理定时器
+    this.docCleanupTimers.forEach((timer, docName) => {
+      clearTimeout(timer)
+      this.logger.log(`🗑️ 取消文档清理定时器: ${docName}`)
+    })
+    this.docCleanupTimers.clear()
+
+    // 清理所有 Y.Doc 实例
+    this.docs.forEach((doc, docName) => {
+      try {
+        doc.destroy()
+        this.logger.log(`📄 销毁文档: ${docName}`)
+      } catch (e) {
+        this.logger.warn(`销毁文档失败: ${docName} - ${e.message}`)
+      }
+    })
+    this.docs.clear()
+
+    // 关闭所有连接
+    this.docConnections.forEach((connections, _docName) => {
+      connections.forEach((client) => {
+        try {
+          client.close(1001, 'Server shutting down')
+        } catch (e) {
+          // 忽略
+        }
+      })
+    })
+    this.docConnections.clear()
+    this.userConnections.clear()
+
+    this.logger.log('✅ 资源清理完成')
+  }
+
+  /**
    * 清理连接
    */
   private cleanupConnection(client: any) {
@@ -102,14 +151,37 @@ export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisco
       // 如果没有连接了，5分钟后清理文档
       if (connections.size === 0) {
         this.logger.log(`📊 文档 ${docName} 暂无连接`)
-        setTimeout(() => {
+        
+        // 取消已存在的清理定时器（如果有）
+        const existingTimer = this.docCleanupTimers.get(docName)
+        if (existingTimer) {
+          clearTimeout(existingTimer)
+        }
+        
+        // 设置新的清理定时器
+        const cleanupTimer = setTimeout(() => {
           const currentConnections = this.docConnections.get(docName)
           if (!currentConnections || currentConnections.size === 0) {
+            // 销毁 Y.Doc 并移除事件监听器
+            const doc = this.docs.get(docName)
+            if (doc) {
+              doc.destroy()
+            }
             this.docs.delete(docName)
             this.docConnections.delete(docName)
+            this.docCleanupTimers.delete(docName)
             this.logger.log(`🗑️  清理文档: ${docName}`)
           }
         }, 5 * 60 * 1000)
+        
+        this.docCleanupTimers.set(docName, cleanupTimer)
+      } else {
+        // 有新连接时，取消清理定时器
+        const existingTimer = this.docCleanupTimers.get(docName)
+        if (existingTimer) {
+          clearTimeout(existingTimer)
+          this.docCleanupTimers.delete(docName)
+        }
       }
     }
 
@@ -141,7 +213,7 @@ export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisco
    */
   private broadcastAwarenessRemove(docName: string, clientId: number, connections: Set<any>) {
     try {
-      // 构造 awareness 移除消息
+      // 构造符合 y-protocols awareness 协议的移除消息
       const encoder = this.createEncoder()
       this.writeVarUint(encoder, MESSAGE_AWARENESS)
 
@@ -152,12 +224,12 @@ export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisco
       // 写入 clock (使用较大的值确保覆盖旧状态)
       this.writeVarUint(encoder, Date.now() % 0xFFFFFFFF)
 
-      // 写入 "null" 字符串表示删除该客户端的状态
-      // y-protocols 使用 JSON 字符串，null 表示删除
-      const nullStr = 'null'
-      this.writeVarUint(encoder, nullStr.length)
-      for (let i = 0; i < nullStr.length; i++) {
-        encoder.data.push(nullStr.charCodeAt(i))
+      // 关键修复：使用 TextEncoder 进行正确的 UTF-8 编码
+      const nullJson = JSON.stringify(null) // "null"
+      const nullBytes = new TextEncoder().encode(nullJson)
+      this.writeVarUint(encoder, nullBytes.length)
+      for (let i = 0; i < nullBytes.length; i++) {
+        encoder.data.push(nullBytes[i])
       }
 
       const message = this.toUint8Array(encoder)

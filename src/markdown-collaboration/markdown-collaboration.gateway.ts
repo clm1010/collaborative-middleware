@@ -4,7 +4,7 @@ import {
   OnGatewayDisconnect,
   WebSocketServer,
 } from '@nestjs/websockets'
-import { Logger } from '@nestjs/common'
+import { Logger, OnModuleDestroy } from '@nestjs/common'
 import * as WebSocket from 'ws'
 import * as Y from 'yjs'
 import { Server } from 'ws'
@@ -21,7 +21,7 @@ const MESSAGE_AWARENESS = 1
   transports: ['websocket'],
   path: '/markdown',
 })
-export class MarkdownCollaborationGateway implements OnGatewayConnection, OnGatewayDisconnect {
+export class MarkdownCollaborationGateway implements OnGatewayConnection, OnGatewayDisconnect, OnModuleDestroy {
   @WebSocketServer()
   server: Server
 
@@ -33,6 +33,8 @@ export class MarkdownCollaborationGateway implements OnGatewayConnection, OnGate
   private docConnections = new Map<string, Set<any>>()
   // 存储用户ID到连接的映射（用于踢掉同一用户的旧连接）
   private userConnections = new Map<string, any>()
+  // 存储文档清理定时器（用于取消）
+  private docCleanupTimers = new Map<string, NodeJS.Timeout>()
   // 心跳检测定时器
   private heartbeatInterval: NodeJS.Timeout | null = null
   // 心跳间隔 (30秒)
@@ -81,6 +83,53 @@ export class MarkdownCollaborationGateway implements OnGatewayConnection, OnGate
   }
 
   /**
+   * 模块销毁时清理资源
+   */
+  onModuleDestroy() {
+    this.logger.log('🛑 [Markdown] 模块销毁，开始清理资源...')
+
+    // 清理心跳定时器
+    if (this.heartbeatInterval) {
+      clearInterval(this.heartbeatInterval)
+      this.heartbeatInterval = null
+      this.logger.log('💔 [Markdown] 心跳定时器已清理')
+    }
+
+    // 清理所有文档清理定时器
+    this.docCleanupTimers.forEach((timer, docName) => {
+      clearTimeout(timer)
+      this.logger.log(`🗑️ [Markdown] 取消文档清理定时器: ${docName}`)
+    })
+    this.docCleanupTimers.clear()
+
+    // 清理所有 Y.Doc 实例
+    this.markdownDocs.forEach((doc, docName) => {
+      try {
+        doc.destroy()
+        this.logger.log(`📄 [Markdown] 销毁文档: ${docName}`)
+      } catch (e) {
+        this.logger.warn(`[Markdown] 销毁文档失败: ${docName} - ${e.message}`)
+      }
+    })
+    this.markdownDocs.clear()
+
+    // 关闭所有连接
+    this.docConnections.forEach((connections, _docName) => {
+      connections.forEach((client) => {
+        try {
+          client.close(1001, 'Server shutting down')
+        } catch (e) {
+          // 忽略
+        }
+      })
+    })
+    this.docConnections.clear()
+    this.userConnections.clear()
+
+    this.logger.log('✅ [Markdown] 资源清理完成')
+  }
+
+  /**
    * 清理连接
    */
   private cleanupConnection(client: any) {
@@ -103,20 +152,46 @@ export class MarkdownCollaborationGateway implements OnGatewayConnection, OnGate
       // 如果没有连接了，5分钟后清理文档
       if (connections.size === 0) {
         this.logger.log(`📊 [Markdown] 文档 ${docName} 暂无连接`)
-        setTimeout(() => {
+        
+        // 取消已存在的清理定时器（如果有）
+        const existingTimer = this.docCleanupTimers.get(docName)
+        if (existingTimer) {
+          clearTimeout(existingTimer)
+        }
+        
+        // 设置新的清理定时器
+        const cleanupTimer = setTimeout(() => {
           const currentConnections = this.docConnections.get(docName)
           if (!currentConnections || currentConnections.size === 0) {
+            // 销毁 Y.Doc 并移除事件监听器
+            const doc = this.markdownDocs.get(docName)
+            if (doc) {
+              doc.destroy()
+            }
             this.markdownDocs.delete(docName)
             this.docConnections.delete(docName)
+            this.docCleanupTimers.delete(docName)
             this.logger.log(`🗑️ [Markdown] 清理文档: ${docName}`)
           }
         }, 5 * 60 * 1000)
+        
+        this.docCleanupTimers.set(docName, cleanupTimer)
+      } else {
+        // 有新连接时，取消清理定时器
+        const existingTimer = this.docCleanupTimers.get(docName)
+        if (existingTimer) {
+          clearTimeout(existingTimer)
+          this.docCleanupTimers.delete(docName)
+        }
       }
     }
 
     // 从用户连接映射中移除
     if (userInfo?.id) {
-      const userKey = `markdown:${docName}:${userInfo.id}`
+      // 使用与 handleConnection 相同的 key 生成逻辑
+      const userKey = userInfo.deviceId
+        ? `markdown:${docName}:${userInfo.id}:${userInfo.deviceId}`
+        : `markdown:${docName}:${userInfo.id}`
       if (this.userConnections.get(userKey) === client) {
         this.userConnections.delete(userKey)
       }
@@ -129,40 +204,41 @@ export class MarkdownCollaborationGateway implements OnGatewayConnection, OnGate
    */
   private broadcastAwarenessRemove(docName: string, clientId: number, connections: Set<any>) {
     try {
-      // 构造 awareness 移除消息
-      // 格式: [MESSAGE_AWARENESS, length, clientId, clock, "null"]
+      // 构造符合 y-protocols awareness 协议的移除消息
       const encoder = this.createEncoder()
       this.writeVarUint(encoder, MESSAGE_AWARENESS)
 
-      // awareness 更新数据
-      const awarenessEncoder = this.createEncoder()
-      this.writeVarUint(awarenessEncoder, 1) // 1 个客户端更新
-      this.writeVarUint(awarenessEncoder, clientId) // 客户端 ID
-      this.writeVarUint(awarenessEncoder, 1) // clock (递增值)
+      // 写入客户端数量 (1个)
+      this.writeVarUint(encoder, 1)
+      // 写入客户端 ID
+      this.writeVarUint(encoder, clientId)
+      // 写入 clock (使用较大的值确保覆盖旧状态)
+      this.writeVarUint(encoder, Date.now() % 0xFFFFFFFF)
 
-      // 写入 "null" 字符串表示删除该客户端的状态
-      const nullStr = 'null'
-      this.writeVarUint(awarenessEncoder, nullStr.length)
-      for (let i = 0; i < nullStr.length; i++) {
-        awarenessEncoder.data.push(nullStr.charCodeAt(i))
-      }
-
-      // 将 awareness 数据作为数组写入
-      const awarenessData = this.toUint8Array(awarenessEncoder)
-      for (let i = 0; i < awarenessData.length; i++) {
-        encoder.data.push(awarenessData[i])
+      // 关键修复：使用 TextEncoder 进行正确的 UTF-8 编码
+      const nullJson = JSON.stringify(null) // "null"
+      const nullBytes = new TextEncoder().encode(nullJson)
+      this.writeVarUint(encoder, nullBytes.length)
+      for (let i = 0; i < nullBytes.length; i++) {
+        encoder.data.push(nullBytes[i])
       }
 
       const message = this.toUint8Array(encoder)
 
       // 广播给所有连接
+      let sentCount = 0
       connections.forEach((conn) => {
         if (conn.readyState === WebSocket.OPEN) {
-          conn.send(message)
+          try {
+            conn.send(message)
+            sentCount++
+          } catch (sendErr) {
+            this.logger.warn(`[Markdown] 发送 awareness 移除消息失败: ${sendErr.message}`)
+          }
         }
       })
 
-      this.logger.log(`📢 [Markdown] 广播用户离线: clientId=${clientId}`)
+      this.logger.log(`📢 [Markdown] 广播用户离线: clientId=${clientId}, 已发送给 ${sentCount} 个连接`)
     } catch (e) {
       this.logger.error(`[Markdown] 广播 awareness 移除失败: ${e.message}`)
     }
@@ -217,15 +293,17 @@ export class MarkdownCollaborationGateway implements OnGatewayConnection, OnGate
       // 如果 docName 为空或仍然包含斜杠，进一步清理
       docName = docName.split('/').filter(Boolean)[0] || 'default'
 
-      // 获取用户信息
+      // 获取用户信息（包含设备ID，支持同一用户多设备连接）
       const userInfo = {
         id: url.searchParams.get('userId') || String(Date.now()),
         name: decodeURIComponent(url.searchParams.get('userName') || '匿名用户'),
         color: url.searchParams.get('userColor') || '#409EFF',
+        deviceId: url.searchParams.get('deviceId') || '', // 设备唯一标识
       }
 
       this.logger.log(`✅ [Markdown] WebSocket 连接: ${docName}`)
       this.logger.log(`   用户: ${userInfo.name} (${userInfo.id})`)
+      this.logger.log(`   设备ID: ${userInfo.deviceId || '未提供'}`)
 
       // 获取或创建文档
       const doc = this.getYDoc(docName)
@@ -236,11 +314,14 @@ export class MarkdownCollaborationGateway implements OnGatewayConnection, OnGate
       }
       const connections = this.docConnections.get(docName)
 
-      // 检查同一用户是否已有连接（踢掉旧连接）
-      const userKey = `markdown:${docName}:${userInfo.id}`
+      // 检查同一用户+同一设备是否已有连接（踢掉旧连接）
+      // 使用 userId + deviceId 作为唯一标识，允许同一用户在不同设备上同时连接
+      const userKey = userInfo.deviceId
+        ? `markdown:${docName}:${userInfo.id}:${userInfo.deviceId}`
+        : `markdown:${docName}:${userInfo.id}` // 兼容未提供 deviceId 的旧客户端
       const existingConnection = this.userConnections.get(userKey)
       if (existingConnection && existingConnection !== client) {
-        this.logger.warn(`⚠️ [Markdown] 用户 ${userInfo.name} 重复连接，踢掉旧连接`)
+        this.logger.warn(`⚠️ [Markdown] 用户 ${userInfo.name} 在同一设备重复连接，踢掉旧连接 (key: ${userKey})`)
         this.cleanupConnection(existingConnection)
         try {
           existingConnection.close(1000, 'Replaced by new connection')
