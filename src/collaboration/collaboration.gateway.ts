@@ -261,6 +261,8 @@ export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisco
     if (!doc) {
       doc = new Y.Doc()
       doc['name'] = docName
+      // 写入初始化元数据，避免首次同步为空更新
+      doc.getMap('meta').set('createdAt', Date.now())
 
       // 监听文档更新，广播给所有连接
       doc.on('update', (update: Uint8Array, origin: any) => {
