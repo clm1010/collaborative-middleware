@@ -36,8 +36,8 @@ export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisco
   private userConnections = new Map<string, any>()
   // 心跳检测定时器
   private heartbeatInterval: NodeJS.Timeout | null = null
-  // 心跳间隔 (30秒)
-  private readonly HEARTBEAT_INTERVAL = 30000
+  // 心跳间隔 (10秒)
+  private readonly HEARTBEAT_INTERVAL = 10000
 
   /**
    * 启动心跳检测
@@ -172,7 +172,7 @@ export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisco
             this.docCleanupTimers.delete(docName)
             this.logger.log(`🗑️  清理文档: ${docName}`)
           }
-        }, 5 * 60 * 1000)
+        }, 2 * 60 * 1000)
         
         this.docCleanupTimers.set(docName, cleanupTimer)
       } else {
