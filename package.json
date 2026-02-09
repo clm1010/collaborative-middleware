@@ -26,6 +26,7 @@
     "reflect-metadata": "^0.2.1",
     "rxjs": "^7.8.1",
     "ws": "^8.18.3",
+    "y-leveldb": "^0.2.0",
     "yjs": "^13.6.29"
   },
   "devDependencies": {

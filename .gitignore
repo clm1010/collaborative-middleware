@@ -44,3 +44,4 @@ lerna-debug.log*
 .env.*.local
 
 *.tar
+yjs-data

@@ -8,6 +8,7 @@ import { Logger, OnModuleDestroy } from '@nestjs/common'
 import * as WebSocket from 'ws'
 import * as Y from 'yjs'
 import { Server } from 'ws'
+import { LeveldbPersistence } from 'y-leveldb'
 
 // Y.js WebSocket 消息类型
 const MESSAGE_SYNC = 0
@@ -25,6 +26,9 @@ export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisco
   server: Server
 
   private readonly logger = new Logger(CollaborationGateway.name)
+
+  // Y.Doc LevelDB 持久化（中间件重启后自动恢复文档状态）
+  private persistence = new LeveldbPersistence('./yjs-data/collaboration')
 
   // 存储每个文档的 Y.Doc 实例
   private docs = new Map<string, Y.Doc>()
@@ -159,9 +163,16 @@ export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisco
         }
         
         // 设置新的清理定时器
-        const cleanupTimer = setTimeout(() => {
+        const cleanupTimer = setTimeout(async () => {
           const currentConnections = this.docConnections.get(docName)
           if (!currentConnections || currentConnections.size === 0) {
+            // 先压缩 LevelDB 历史（将所有增量 update 合并为一条快照，减小磁盘占用）
+            try {
+              await this.persistence.flushDocument(docName)
+              this.logger.log(`📦 LevelDB 压缩完成: ${docName}`)
+            } catch (e) {
+              this.logger.warn(`LevelDB 压缩失败: ${docName} - ${e.message}`)
+            }
             // 销毁 Y.Doc 并移除事件监听器
             const doc = this.docs.get(docName)
             if (doc) {
@@ -221,8 +232,8 @@ export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisco
       this.writeVarUint(encoder, 1)
       // 写入客户端 ID
       this.writeVarUint(encoder, clientId)
-      // 写入 clock (使用较大的值确保覆盖旧状态)
-      this.writeVarUint(encoder, Date.now() % 0xFFFFFFFF)
+      // 写入 clock（使用最大安全值，确保覆盖客户端的任何旧状态）
+      this.writeVarUint(encoder, 0xFFFFFFFF)
 
       // 关键修复：使用 TextEncoder 进行正确的 UTF-8 编码
       const nullJson = JSON.stringify(null) // "null"
@@ -254,21 +265,38 @@ export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisco
   }
 
   /**
-   * 获取或创建文档
+   * 获取或创建文档（异步：需要从 LevelDB 恢复持久化数据）
    */
-  private getYDoc(docName: string): Y.Doc {
+  private async getYDoc(docName: string): Promise<Y.Doc> {
     let doc = this.docs.get(docName)
     if (!doc) {
       doc = new Y.Doc()
       doc['name'] = docName
+
+      // 从 LevelDB 恢复已持久化的文档状态（中间件重启后自动恢复）
+      try {
+        const persistedDoc = await this.persistence.getYDoc(docName)
+        const persistedUpdate = Y.encodeStateAsUpdate(persistedDoc)
+        Y.applyUpdate(doc, persistedUpdate)
+        persistedDoc.destroy()
+        this.logger.log(`📂 从 LevelDB 恢复文档: ${docName}`)
+      } catch (e) {
+        this.logger.warn(`LevelDB 恢复失败（首次创建？）: ${docName} - ${e.message}`)
+      }
+
       // 写入初始化元数据，避免首次同步为空更新
       doc.getMap('meta').set('createdAt', Date.now())
 
-      // 监听文档更新，广播给所有连接
+      // 监听文档更新：实时持久化到 LevelDB + 广播给所有连接
       doc.on('update', (update: Uint8Array, origin: any) => {
+        // 持久化到 LevelDB
+        this.persistence.storeUpdate(docName, update).catch((e) => {
+          this.logger.error(`LevelDB 持久化失败: ${docName} - ${e.message}`)
+        })
+
+        // 广播给其他连接（原有逻辑不变）
         const connections = this.docConnections.get(docName)
         if (connections) {
-          // 编码更新消息
           const encoder = this.createEncoder()
           this.writeVarUint(encoder, MESSAGE_SYNC)
           this.writeVarUint(encoder, 2) // sync step 2 = update
@@ -292,7 +320,7 @@ export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisco
   /**
    * 处理连接
    */
-  handleConnection(client: any, ...args: any[]) {
+  async handleConnection(client: any, ...args: any[]) {
     try {
       const request = args[0]
 
@@ -313,8 +341,8 @@ export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisco
       this.logger.log(`   用户: ${userInfo.name} (${userInfo.id})`)
       this.logger.log(`   设备ID: ${userInfo.deviceId || '未提供'}`)
 
-      // 获取或创建文档
-      const doc = this.getYDoc(docName)
+      // 获取或创建文档（异步：从 LevelDB 恢复持久化数据）
+      const doc = await this.getYDoc(docName)
 
       // 获取或创建连接集合
       if (!this.docConnections.has(docName)) {
