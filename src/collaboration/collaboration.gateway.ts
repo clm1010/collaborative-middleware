@@ -36,12 +36,10 @@ export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisco
   private docCleanupTimers = new Map<string, NodeJS.Timeout>()
   // 存储每个文档的连接
   private docConnections = new Map<string, Set<any>>()
-  // 存储用户ID到连接的映射（用于踢掉同一用户的旧连接）
-  private userConnections = new Map<string, any>()
   // 心跳检测定时器
   private heartbeatInterval: NodeJS.Timeout | null = null
-  // 心跳间隔 (10秒)
-  private readonly HEARTBEAT_INTERVAL = 10000
+  // 心跳间隔 (3秒，局域网环境足够安全，可更快检测死连接)
+  private readonly HEARTBEAT_INTERVAL = 3000
 
   /**
    * 启动心跳检测
@@ -127,7 +125,6 @@ export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisco
       })
     })
     this.docConnections.clear()
-    this.userConnections.clear()
 
     this.logger.log('✅ 资源清理完成')
   }
@@ -137,7 +134,6 @@ export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisco
    */
   private cleanupConnection(client: any) {
     const docName = client.docName
-    const userInfo = client.userInfo
     const awarenessClientId = client.awarenessClientId
 
     if (!docName) return
@@ -196,16 +192,11 @@ export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisco
       }
     }
 
-    // 从用户连接映射中移除
-    if (userInfo?.id) {
-      // 使用与 handleConnection 相同的 key 生成逻辑
-      const userKey = userInfo.deviceId
-        ? `${docName}:${userInfo.id}:${userInfo.deviceId}`
-        : `${docName}:${userInfo.id}`
-      if (this.userConnections.get(userKey) === client) {
-        this.userConnections.delete(userKey)
-        this.logger.log(`🔑 移除用户连接映射: ${userKey}`)
-      }
+    // 移除该连接上的所有 message 监听器，防止关闭握手期间残留 awareness 消息转发
+    try {
+      client.removeAllListeners('message')
+    } catch (e) {
+      // 忽略
     }
   }
 
@@ -329,17 +320,18 @@ export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisco
       let docName = url.pathname.replace(/^\/collaboration\/?/, '') || 'default'
       docName = docName.split('/').filter(Boolean)[0] || 'default'
 
-      // 获取用户信息（包含设备ID，支持同一用户多设备连接）
+      // 获取用户信息（包含设备ID + 标签页ID，支持同一用户多标签页/多设备共存）
       const userInfo = {
         id: url.searchParams.get('userId') || String(Date.now()),
         name: decodeURIComponent(url.searchParams.get('userName') || '匿名用户'),
         color: url.searchParams.get('userColor') || '#409EFF',
-        deviceId: url.searchParams.get('deviceId') || '', // 设备唯一标识
+        deviceId: url.searchParams.get('deviceId') || '', // 设备唯一标识（localStorage，同一浏览器共享）
+        tabId: url.searchParams.get('tabId') || '',       // 标签页唯一标识（sessionStorage，每个标签页独立）
       }
 
       this.logger.log(`✅ WebSocket 连接: ${docName}`)
       this.logger.log(`   用户: ${userInfo.name} (${userInfo.id})`)
-      this.logger.log(`   设备ID: ${userInfo.deviceId || '未提供'}`)
+      this.logger.log(`   设备ID: ${userInfo.deviceId || '未提供'}, 标签页ID: ${userInfo.tabId || '未提供'}`)
 
       // 获取或创建文档（异步：从 LevelDB 恢复持久化数据）
       const doc = await this.getYDoc(docName)
@@ -350,34 +342,12 @@ export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisco
       }
       const connections = this.docConnections.get(docName)
 
-      // 检查同一用户+同一设备是否已有连接（踢掉旧连接）
-      // 使用 userId + deviceId 作为唯一标识，允许同一用户在不同设备上同时连接
-      const userKey = userInfo.deviceId
-        ? `${docName}:${userInfo.id}:${userInfo.deviceId}`
-        : `${docName}:${userInfo.id}` // 兼容未提供 deviceId 的旧客户端
-      const existingConnection = this.userConnections.get(userKey)
-      if (existingConnection && existingConnection !== client) {
-        this.logger.warn(`⚠️ 用户 ${userInfo.name} 在同一设备重复连接，踢掉旧连接 (key: ${userKey})`)
-        this.cleanupConnection(existingConnection)
-        try {
-          existingConnection.close(1000, 'Replaced by new connection from same device')
-        } catch (e) {
-          try {
-            existingConnection.terminate()
-          } catch (e2) {
-            // 忽略
-          }
-        }
-      }
-
+      // Google Docs 模式：允许同一用户多连接共存（多标签页、多设备）
+      // 不踢旧连接，前端按 userId 去重只显示 1 个用户
       client.docName = docName
       client.userInfo = userInfo
       client.isAlive = true
-
-      // 添加到连接集合
       connections.add(client)
-      // 记录用户连接映射
-      this.userConnections.set(userKey, client)
 
       // 处理消息
       client.on('message', (message: Buffer) => {
@@ -428,6 +398,12 @@ export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisco
    */
   private handleMessage(ws: any, doc: Y.Doc, message: Buffer) {
     try {
+      // 防御性校验：如果该连接已被 cleanupConnection 移除，忽略后续消息
+      const connections = this.docConnections.get(ws.docName)
+      if (!connections || !connections.has(ws)) {
+        return
+      }
+
       const data = new Uint8Array(message)
       const decoder = this.createDecoder(data)
       const messageType = this.readVarUint(decoder)
