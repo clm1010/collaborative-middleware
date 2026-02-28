@@ -44,11 +44,13 @@ docker load -i /tmp/collaborative-middleware.tar
 # -d                后台运行
 # -p 3001:3001      端口映射
 # -v                挂载持久化目录，确保中间件重启后 Y.Doc 数据不丢失
+# --name            是 Docker 容器名
 # --restart         容器异常退出时自动重启
+# collaborative-middleware 这里是镜像名 必须与 build 时的镜像名一致
 docker run -d \
   -p 3001:3001 \
   -v /data/yjs-data:/app/yjs-data \
-  --name collaborative-middleware \
+  --name app \
   --restart unless-stopped \
   collaborative-middleware
 ```

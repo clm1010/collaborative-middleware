@@ -20,10 +20,9 @@ import { MarkdownCollaborationModule } from './markdown-collaboration/markdown-c
 @Module({
   imports: [
     ConfigModule.forRoot({
-      isGlobal: true, // 使配置在整个应用中全局可用
-      envFilePath: ['.env', '.env.dev', '.env.prod'], // 按顺序加载环境文件
+      isGlobal: true,
+      envFilePath: ['.env', '.env.dev', '.env.prod'],
     }),
-    // WebSocket 协同编辑模块
     CollaborationModule,
     MarkdownCollaborationModule,
   ],

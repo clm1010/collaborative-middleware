@@ -16,15 +16,12 @@ import { networkInterfaces } from 'os'
 async function bootstrap() {
   const app = await NestFactory.create(AppModule)
 
-  // 使用自定义 WebSocket 适配器
   app.useWebSocketAdapter(new WsAdapter(app))
   const logger = new Logger('Bootstrap')
 
-  // 获取环境变量
   const NODE_ENV = process.env.NODE_ENV || 'development'
   const isProduction = NODE_ENV === 'production'
 
-  // 启用 CORS
   const corsOrigin = process.env.CORS_ORIGIN
     ? process.env.CORS_ORIGIN.split(',').map((origin) => origin.trim())
     : '*'
@@ -35,12 +32,10 @@ async function bootstrap() {
     credentials: true
   })
 
-  // 启动服务
   const PORT = process.env.COLLABORATIVE_MIDDLEWARE_PORT || 3001
   // 监听 0.0.0.0 允许外部访问（局域网内其他电脑）
   await app.listen(PORT, '0.0.0.0')
 
-  // 获取本机IP地址（用于生产环境显示）
   const nets = networkInterfaces()
   let localIp = 'localhost'
   Object.keys(nets).forEach((key) => {

@@ -30,13 +30,9 @@ export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisco
   // Y.Doc LevelDB 持久化（中间件重启后自动恢复文档状态）
   private persistence = new LeveldbPersistence('./yjs-data/collaboration')
 
-  // 存储每个文档的 Y.Doc 实例
   private docs = new Map<string, Y.Doc>()
-  // 存储文档清理定时器（用于取消）
   private docCleanupTimers = new Map<string, NodeJS.Timeout>()
-  // 存储每个文档的连接
   private docConnections = new Map<string, Set<any>>()
-  // 心跳检测定时器
   private heartbeatInterval: NodeJS.Timeout | null = null
   // 心跳间隔 (3秒，局域网环境足够安全，可更快检测死连接)
   private readonly HEARTBEAT_INTERVAL = 3000
@@ -53,12 +49,10 @@ export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisco
 
         connections.forEach((client) => {
           if (client.isAlive === false) {
-            // 连接已死，标记为待清理
             deadConnections.push(client)
             return
           }
 
-          // 标记为未响应，等待下次 pong
           client.isAlive = false
           try {
             client.ping()
@@ -67,15 +61,12 @@ export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisco
           }
         })
 
-        // 清理死连接
         deadConnections.forEach((client) => {
           this.logger.warn(`💀 心跳超时，清理连接: ${docName} (${client.userInfo?.name || '未知用户'})`)
           this.cleanupConnection(client)
           try {
             client.terminate()
-          } catch (e) {
-            // 忽略
-          }
+          } catch (e) {}
         })
       })
     }, this.HEARTBEAT_INTERVAL)
@@ -89,21 +80,18 @@ export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisco
   onModuleDestroy() {
     this.logger.log('🛑 模块销毁，开始清理资源...')
 
-    // 清理心跳定时器
     if (this.heartbeatInterval) {
       clearInterval(this.heartbeatInterval)
       this.heartbeatInterval = null
       this.logger.log('💔 心跳定时器已清理')
     }
 
-    // 清理所有文档清理定时器
     this.docCleanupTimers.forEach((timer, docName) => {
       clearTimeout(timer)
       this.logger.log(`🗑️ 取消文档清理定时器: ${docName}`)
     })
     this.docCleanupTimers.clear()
 
-    // 清理所有 Y.Doc 实例
     this.docs.forEach((doc, docName) => {
       try {
         doc.destroy()
@@ -114,14 +102,11 @@ export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisco
     })
     this.docs.clear()
 
-    // 关闭所有连接
     this.docConnections.forEach((connections, _docName) => {
       connections.forEach((client) => {
         try {
           client.close(1001, 'Server shutting down')
-        } catch (e) {
-          // 忽略
-        }
+        } catch (e) {}
       })
     })
     this.docConnections.clear()
@@ -152,13 +137,11 @@ export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisco
       if (connections.size === 0) {
         this.logger.log(`📊 文档 ${docName} 暂无连接`)
         
-        // 取消已存在的清理定时器（如果有）
         const existingTimer = this.docCleanupTimers.get(docName)
         if (existingTimer) {
           clearTimeout(existingTimer)
         }
         
-        // 设置新的清理定时器
         const cleanupTimer = setTimeout(async () => {
           const currentConnections = this.docConnections.get(docName)
           if (!currentConnections || currentConnections.size === 0) {
@@ -183,7 +166,6 @@ export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisco
         
         this.docCleanupTimers.set(docName, cleanupTimer)
       } else {
-        // 有新连接时，取消清理定时器
         const existingTimer = this.docCleanupTimers.get(docName)
         if (existingTimer) {
           clearTimeout(existingTimer)
@@ -195,9 +177,7 @@ export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisco
     // 移除该连接上的所有 message 监听器，防止关闭握手期间残留 awareness 消息转发
     try {
       client.removeAllListeners('message')
-    } catch (e) {
-      // 忽略
-    }
+    } catch (e) {}
   }
 
   /**
@@ -219,9 +199,7 @@ export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisco
       const encoder = this.createEncoder()
       this.writeVarUint(encoder, MESSAGE_AWARENESS)
 
-      // 写入客户端数量 (1个)
       this.writeVarUint(encoder, 1)
-      // 写入客户端 ID
       this.writeVarUint(encoder, clientId)
       // 写入 clock（使用最大安全值，确保覆盖客户端的任何旧状态）
       this.writeVarUint(encoder, 0xFFFFFFFF)
@@ -236,7 +214,6 @@ export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisco
 
       const message = this.toUint8Array(encoder)
 
-      // 广播给所有连接
       let sentCount = 0
       connections.forEach((conn) => {
         if (conn.readyState === WebSocket.OPEN) {
@@ -280,12 +257,10 @@ export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisco
 
       // 监听文档更新：实时持久化到 LevelDB + 广播给所有连接
       doc.on('update', (update: Uint8Array, origin: any) => {
-        // 持久化到 LevelDB
         this.persistence.storeUpdate(docName, update).catch((e) => {
           this.logger.error(`LevelDB 持久化失败: ${docName} - ${e.message}`)
         })
 
-        // 广播给其他连接（原有逻辑不变）
         const connections = this.docConnections.get(docName)
         if (connections) {
           const encoder = this.createEncoder()
@@ -315,7 +290,6 @@ export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisco
     try {
       const request = args[0]
 
-      // 解析 URL 获取文档名称，去掉 /collaboration 前缀
       const url = new URL(request.url, `http://${request.headers.host}`)
       let docName = url.pathname.replace(/^\/collaboration\/?/, '') || 'default'
       docName = docName.split('/').filter(Boolean)[0] || 'default'
@@ -333,10 +307,8 @@ export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisco
       this.logger.log(`   用户: ${userInfo.name} (${userInfo.id})`)
       this.logger.log(`   设备ID: ${userInfo.deviceId || '未提供'}, 标签页ID: ${userInfo.tabId || '未提供'}`)
 
-      // 获取或创建文档（异步：从 LevelDB 恢复持久化数据）
       const doc = await this.getYDoc(docName)
 
-      // 获取或创建连接集合
       if (!this.docConnections.has(docName)) {
         this.docConnections.set(docName, new Set())
       }
@@ -349,29 +321,24 @@ export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisco
       client.isAlive = true
       connections.add(client)
 
-      // 处理消息
       client.on('message', (message: Buffer) => {
         this.handleMessage(client, doc, message)
       })
 
-      // 监听连接关闭
       client.on('close', () => {
         this.logger.log(`🔌 连接关闭: ${docName} (${userInfo.name})`)
         this.cleanupConnection(client)
       })
 
-      // 监听连接错误
       client.on('error', (error: Error) => {
         this.logger.error(`❗ 连接错误: ${docName} (${userInfo.name}) - ${error.message}`)
         this.cleanupConnection(client)
       })
 
-      // 心跳响应
       client.on('pong', () => {
         client.isAlive = true
       })
 
-      // 启动心跳检测（首次连接时）
       this.startHeartbeat()
 
       this.logger.log(`📊 当前文档 ${docName} 的连接数: ${connections.size}`)
@@ -429,11 +396,9 @@ export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisco
             // 客户端收到 sync step 2 后会自己判断是否需要发送更新
           } else if (syncType === 1) {
             // Sync step 1 from server (客户端不应该收到这个，这里是服务端收到客户端的 state vector 请求)
-            // 返回服务器的状态更新给客户端
             const stateVector = this.readVarUint8Array(decoder)
             const update = Y.encodeStateAsUpdate(doc, stateVector)
             if (update.length > 2) {
-              // 有实际更新内容
               const encoder = this.createEncoder()
               this.writeVarUint(encoder, MESSAGE_SYNC)
               this.writeVarUint(encoder, 2)
@@ -441,7 +406,6 @@ export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisco
               ws.send(this.toUint8Array(encoder))
             }
           } else if (syncType === 2) {
-            // Update: 应用客户端发送的更新
             const update = this.readVarUint8Array(decoder)
             Y.applyUpdate(doc, update, ws)
           }
@@ -454,17 +418,13 @@ export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisco
             const numClients = this.readVarUint(decoder)
             if (numClients > 0) {
               const clientId = this.readVarUint(decoder)
-              // 记录该连接的 awareness clientId
               if (ws.awarenessClientId === undefined) {
                 ws.awarenessClientId = clientId
                 this.logger.log(`📝 记录 awareness clientId: ${clientId} (${ws.userInfo?.name})`)
               }
             }
-          } catch (e) {
-            // 解析失败时忽略
-          }
+          } catch (e) {}
 
-          // Awareness 消息转发给其他客户端
           const connections = this.docConnections.get(ws.docName)
           if (connections) {
             connections.forEach((conn) => {
@@ -480,8 +440,6 @@ export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisco
       this.logger.error(`处理消息出错: ${e.message}`)
     }
   }
-
-  // ==================== 编码解码工具函数 ====================
 
   private createEncoder() {
     return { data: [] as number[] }
@@ -529,4 +487,3 @@ export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisco
     return arr
   }
 }
-

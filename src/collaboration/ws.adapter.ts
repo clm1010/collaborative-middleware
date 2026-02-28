@@ -22,7 +22,6 @@ export class WsAdapter implements WebSocketAdapter {
   constructor(private app: INestApplicationContext) {}
 
   create(port: number, options: any = {}): any {
-    // 保留网关路径，后续在 upgrade 时进行路由匹配
     const path = options?.path || '/'
     this.logger.log(`创建 WebSocket Server, path=${path}`)
     
@@ -62,14 +61,12 @@ export class WsAdapter implements WebSocketAdapter {
       const { pathname } = new URL(request.url, `http://${request.headers.host}`)
       const normalizedRequestPath = normalizePath(pathname)
 
-      // 仅当路径匹配当前网关时才处理升级
       const isMatch =
         normalizedRequestPath === normalizedServerPath ||
         normalizedRequestPath.startsWith(`${normalizedServerPath}/`)
 
       if (!isMatch) return
 
-      // 标记该 request 已被处理，阻止其他网关 handler 重复处理
       request[WS_UPGRADE_HANDLED] = true
 
       server.handleUpgrade(request, socket, head, (ws: WebSocket) => {
