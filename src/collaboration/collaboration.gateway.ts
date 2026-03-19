@@ -486,4 +486,28 @@ export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisco
     decoder.pos += len
     return arr
   }
+
+  /**
+   * 重置指定文档的 Y.js 持久化数据（供 Controller 调用）
+   * 清除 LevelDB 持久化 + 内存中的 Y.Doc + 相关定时器
+   */
+  async resetDocument(docName: string): Promise<void> {
+    await this.persistence.clearDocument(docName)
+
+    const doc = this.docs.get(docName)
+    if (doc) {
+      doc.destroy()
+      this.docs.delete(docName)
+    }
+
+    this.docConnections.delete(docName)
+
+    const timer = this.docCleanupTimers.get(docName)
+    if (timer) {
+      clearTimeout(timer)
+      this.docCleanupTimers.delete(docName)
+    }
+
+    this.logger.log(`文档已重置: ${docName}`)
+  }
 }

@@ -1,0 +1,46 @@
+---
+description: 协同编辑 WebSocket 网关开发规范。修改中间件代码时自动加载。
+globs: src/**
+---
+
+# 协同网关规范
+
+## 模块结构
+
+- 每个协同类型一个 NestJS Module + Gateway
+- Gateway 实现 `OnGatewayConnection`、`OnGatewayDisconnect`、`OnModuleDestroy`
+- 路径约定：`@WebSocketGateway({ path: '/xxx' })`
+- 当前两个 Gateway：`/collaboration`（文档）、`/markdown`（Markdown），逻辑高度相似
+
+## WebSocket 适配
+
+- 使用自定义 `WsAdapter`（原生 `ws` 库，非 Socket.io）
+- `noServer: true`，在 HTTP upgrade 事件中手动路由
+- **无 WebSocket 认证**：`userId`/`userName` 从 query 参数直接读取，无 token 校验（当前架构约束）
+
+## Y.js 文档管理
+
+- 持久化：LevelDB，路径 `./yjs-data/{模块名}`
+- 活跃文档：`docs = new Map<string, Y.Doc>()`
+- 空闲清理：连接数为 0 后 2 分钟，`flushDocument` 压缩 LevelDB 后 `doc.destroy()`
+- docId：从 URL path 解析（如 `/collaboration/{docId}`）
+- 用户信息：`userId`、`userName`、`userColor`、`deviceId`、`tabId` 从 query 获取
+
+## Y.js 协议
+
+- `MESSAGE_SYNC = 0`：文档同步（syncType 0/1 = state vector 交换，syncType 2 = update）
+- `MESSAGE_AWARENESS = 1`：用户感知（光标、选区等）
+- Gateway 内实现 varuint 编解码，处理二进制消息
+
+## 心跳
+
+- 3 秒间隔 `ping/pong`，超时 `terminate()` 并清理连接
+
+## 日志
+
+- 使用 NestJS `Logger`：`this.logger.log/warn/error`
+
+## 部署约束
+
+- 不支持多实例：`docs` 为进程内 Map，无 Redis 共享
+- Docker 部署需挂载 `/app/yjs-data` 保证数据持久化
