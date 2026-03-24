@@ -9,29 +9,25 @@ export HTTPS_PROXY=http://127.0.0.1:7897
 
 ## 2 打开 DockerDesktop，构建镜像
 
-### 2.1 构建镜像
+### 2.0 首次使用：创建 buildx builder（只需执行一次）
 
-> 2.1 和 2.2 **二选一**，无需都执行。
-> 优先使用此方式，使用传统 Docker 构建引擎，简单直接，大多数情况下够用。
+> 创建支持跨平台导出的 BuildKit 构建器。已创建过则跳过此步。
 
 ```sh
-docker build --platform linux/arm64 -t collaborative-middleware .
+docker buildx create --name multiplatform --driver docker-container --use
 ```
 
-### 2.2 使用 buildx 构建（备选）
+### 2.1 构建并导出镜像
 
-> 2.1 和 2.2 **二选一**，无需都执行。
-> 备选方案：使用 BuildKit 新一代构建工具，跨平台支持更好更稳定。当 2.1 构建失败时再使用此方式。
-> `--load` 参数表示构建完成后将镜像加载到本地 Docker 镜像列表中（buildx 默认不会自动加载）。
-
-```sh
-docker buildx build --platform linux/arm64 -t collaborative-middleware:latest --load .
-```
-
-### 2.3 导出镜像为 tar 文件
+> 使用 buildx 构建 arm64 镜像并直接导出为 tar 文件（构建 + 导出一步完成）。
+> 首次构建或依赖变化时加 `--no-cache`。
 
 ```sh
-docker save collaborative-middleware:latest -o collaborative-middleware.tar
+# 使用缓存构建（日常使用）
+docker buildx build --platform linux/arm64 -t collaborative-middleware:latest --output type=docker,dest=collaborative-middleware.tar .
+
+# 无缓存构建（依赖变化或构建异常时使用）
+docker buildx build --platform linux/arm64 --no-cache -t collaborative-middleware:latest --output type=docker,dest=collaborative-middleware.tar .
 ```
 
 ## 3 在服务器上部署
