@@ -36,12 +36,13 @@ lerna-debug.log*
 !.vscode/launch.json
 !.vscode/extensions.json
 
-# Environment
+# Environment（.env.example 随仓入库，作为配置模板）
 .env
-.env.dev
-.env.prod
 .env.local
 .env.*.local
 
 *.tar
 yjs-data
+
+# 构建期间临时从 gh-proxy 预下载的 pnpm 静态二进制（用于本地 Docker build 绕网络）
+pnpm-linuxstatic-arm64

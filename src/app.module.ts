@@ -21,7 +21,7 @@ import { MarkdownCollaborationModule } from './markdown-collaboration/markdown-c
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
-      envFilePath: ['.env', '.env.dev', '.env.prod'],
+      envFilePath: '.env',
     }),
     CollaborationModule,
     MarkdownCollaborationModule,

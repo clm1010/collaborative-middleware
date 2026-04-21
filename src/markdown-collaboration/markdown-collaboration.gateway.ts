@@ -4,11 +4,12 @@ import {
   OnGatewayDisconnect,
   WebSocketServer,
 } from '@nestjs/websockets'
-import { Logger, OnModuleDestroy } from '@nestjs/common'
+import { Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common'
 import * as WebSocket from 'ws'
 import * as Y from 'yjs'
 import { Server } from 'ws'
 import { LeveldbPersistence } from 'y-leveldb'
+import { resolveIdleCleanupMs, resolveIdleCleanupMinutesReadable } from '../common/resolveIdleCleanupMs'
 
 // Y.js WebSocket 消息类型
 const MESSAGE_SYNC = 0
@@ -22,7 +23,7 @@ const MESSAGE_AWARENESS = 1
   transports: ['websocket'],
   path: '/markdown',
 })
-export class MarkdownCollaborationGateway implements OnGatewayConnection, OnGatewayDisconnect, OnModuleDestroy {
+export class MarkdownCollaborationGateway implements OnGatewayConnection, OnGatewayDisconnect, OnModuleInit, OnModuleDestroy {
   @WebSocketServer()
   server: Server
 
@@ -37,6 +38,12 @@ export class MarkdownCollaborationGateway implements OnGatewayConnection, OnGate
   private heartbeatInterval: NodeJS.Timeout | null = null
   // 心跳间隔 (3秒，局域网环境足够安全，可更快检测死连接)
   private readonly HEARTBEAT_INTERVAL = 3000
+  // 空闲清理窗口（毫秒），可由 DOC_IDLE_CLEANUP_MINUTES 环境变量覆盖（默认 1 分钟）
+  private readonly idleCleanupMs = resolveIdleCleanupMs()
+
+  onModuleInit() {
+    this.logger.log(`📂 [Markdown] 文档空闲清理窗口: ${resolveIdleCleanupMinutesReadable()} 分钟`)
+  }
 
   /**
    * 启动心跳检测
@@ -134,7 +141,8 @@ export class MarkdownCollaborationGateway implements OnGatewayConnection, OnGate
         this.broadcastAwarenessRemove(docName, awarenessClientId, connections)
       }
 
-      // 如果没有连接了，5分钟后清理文档
+      // 最后一个连接断开 idleCleanupMs 毫秒后清理文档
+      // （默认 1 分钟，可通过 DOC_IDLE_CLEANUP_MINUTES 覆盖）
       if (connections.size === 0) {
         this.logger.log(`📊 [Markdown] 文档 ${docName} 暂无连接`)
         
@@ -163,7 +171,7 @@ export class MarkdownCollaborationGateway implements OnGatewayConnection, OnGate
             this.docCleanupTimers.delete(docName)
             this.logger.log(`🗑️ [Markdown] 清理文档: ${docName}`)
           }
-        }, 2 * 60 * 1000)
+        }, this.idleCleanupMs)
         
         this.docCleanupTimers.set(docName, cleanupTimer)
       } else {

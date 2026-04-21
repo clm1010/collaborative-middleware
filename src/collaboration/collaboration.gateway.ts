@@ -4,11 +4,12 @@ import {
   OnGatewayDisconnect,
   WebSocketServer,
 } from '@nestjs/websockets'
-import { Logger, OnModuleDestroy } from '@nestjs/common'
+import { Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common'
 import * as WebSocket from 'ws'
 import * as Y from 'yjs'
 import { Server } from 'ws'
 import { LeveldbPersistence } from 'y-leveldb'
+import { resolveIdleCleanupMs, resolveIdleCleanupMinutesReadable } from '../common/resolveIdleCleanupMs'
 
 // Y.js WebSocket 消息类型
 const MESSAGE_SYNC = 0
@@ -21,7 +22,7 @@ const MESSAGE_AWARENESS = 1
   transports: ['websocket'],
   path: '/collaboration'
 })
-export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisconnect, OnModuleDestroy {
+export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisconnect, OnModuleInit, OnModuleDestroy {
   @WebSocketServer()
   server: Server
 
@@ -36,6 +37,12 @@ export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisco
   private heartbeatInterval: NodeJS.Timeout | null = null
   // 心跳间隔 (3秒，局域网环境足够安全，可更快检测死连接)
   private readonly HEARTBEAT_INTERVAL = 3000
+  // 空闲清理窗口（毫秒），可由 DOC_IDLE_CLEANUP_MINUTES 环境变量覆盖（默认 1 分钟）
+  private readonly idleCleanupMs = resolveIdleCleanupMs()
+
+  onModuleInit() {
+    this.logger.log(`📂 [Collab] 文档空闲清理窗口: ${resolveIdleCleanupMinutesReadable()} 分钟`)
+  }
 
   /**
    * 启动心跳检测
@@ -133,7 +140,8 @@ export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisco
         this.broadcastAwarenessRemove(docName, awarenessClientId, connections)
       }
 
-      // 如果没有连接了，5分钟后清理文档
+      // 最后一个连接断开 idleCleanupMs 毫秒后清理文档
+      // （默认 1 分钟，可通过 DOC_IDLE_CLEANUP_MINUTES 覆盖）
       if (connections.size === 0) {
         this.logger.log(`📊 文档 ${docName} 暂无连接`)
         
@@ -162,7 +170,7 @@ export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisco
             this.docCleanupTimers.delete(docName)
             this.logger.log(`🗑️  清理文档: ${docName}`)
           }
-        }, 2 * 60 * 1000)
+        }, this.idleCleanupMs)
         
         this.docCleanupTimers.set(docName, cleanupTimer)
       } else {
@@ -490,8 +498,31 @@ export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisco
   /**
    * 重置指定文档的 Y.js 持久化数据（供 Controller 调用）
    * 清除 LevelDB 持久化 + 内存中的 Y.Doc + 相关定时器
+   *
+   * 守门规则：
+   * - 若文档仍有在线 WebSocket 连接，拒绝执行并返回 { skipped: true, reason, size }
+   *   避免清空协同房间后在线客户端因 handleMessage 防御性校验而被"静默踢出"
+   * - 无在线连接时，清理 LevelDB + Y.Doc + 清理定时器
+   *
+   * 注意：不再对 docConnections 进行 .delete(docName)，因为：
+   * - 有连接时根本不该执行到这里
+   * - 无连接时，connections 集合要么已不存在，要么是空集合；删除 key 没有业务收益，
+   *   反而可能与正在进入的 handleConnection 竞态（line 312-315 会新建空 Set）
    */
-  async resetDocument(docName: string): Promise<void> {
+  async resetDocument(
+    docName: string
+  ): Promise<
+    | { skipped: false }
+    | { skipped: true; reason: 'has_active_connections'; size: number }
+  > {
+    const activeSize = this.docConnections.get(docName)?.size ?? 0
+    if (activeSize > 0) {
+      this.logger.warn(
+        `⚠️  拒绝 reset（仍有 ${activeSize} 个在线连接）: ${docName}`
+      )
+      return { skipped: true, reason: 'has_active_connections', size: activeSize }
+    }
+
     await this.persistence.clearDocument(docName)
 
     const doc = this.docs.get(docName)
@@ -500,14 +531,13 @@ export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisco
       this.docs.delete(docName)
     }
 
-    this.docConnections.delete(docName)
-
     const timer = this.docCleanupTimers.get(docName)
     if (timer) {
       clearTimeout(timer)
       this.docCleanupTimers.delete(docName)
     }
 
-    this.logger.log(`文档已重置: ${docName}`)
+    this.logger.log(`🧹 文档已重置: ${docName}`)
+    return { skipped: false }
   }
 }
