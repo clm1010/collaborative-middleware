@@ -11,3 +11,14 @@ Dockerfile
 *.log
 *.tar
 yjs-data
+
+# 只含 pnpm 11 的 allowBuilds、没有 packages 字段。镜像内是 pnpm 9.15.8，它一旦
+# 发现 pnpm-workspace.yaml 就按工作区处理并强制要求 packages，导致第 1 阶段的
+# `pnpm exec nest build` 报 "packages field missing or empty"。
+# 排除它不改变构建语义：allowBuilds 是为放行 @nestjs/core 和 classic-level 的构建
+# 脚本，而 pnpm 9 默认就会执行。
+pnpm-workspace.yaml
+
+# 无需进入构建上下文，白传几百 MB 会明显拖慢每次构建
+*.bak
+node_modules.zip

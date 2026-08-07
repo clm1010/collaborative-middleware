@@ -140,10 +140,25 @@ collaborative-middleware/
 
 ### Docker 部署
 
+线上目标服务器是 arm64 且不联网，需要在本机构建 arm64 镜像并导出 tar 带过去。
+完整的构建命令、构建后自检和服务器部署步骤见 [node中间件.md](./node中间件.md)。
+
 ```bash
-docker build -t collaborative-middleware .
-docker run -p 3001:3001 collaborative-middleware
+# 本机（amd64）构建 arm64 镜像并导出，不会进入本地镜像列表
+docker buildx build \
+  --builder multiplatform \
+  --platform linux/arm64 \
+  -t collaborative-middleware:latest \
+  --output type=docker,dest=collaborative-middleware.tar \
+  .
+
+# 服务器上加载并运行
+docker load -i collaborative-middleware.tar
+docker run -d -p 3001:3001 -v /data/yjs-data:/app/yjs-data \
+  --name app --restart unless-stopped collaborative-middleware
 ```
+
+挂载 `/app/yjs-data` 是为了让中间件重启后 Y.Doc 数据不丢失。
 
 ### PM2 部署
 

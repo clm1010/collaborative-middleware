@@ -43,7 +43,5 @@ lerna-debug.log*
 .env.*.local
 
 *.tar
+*.bak
 yjs-data
-
-# 构建期间临时从 gh-proxy 预下载的 pnpm 静态二进制（用于本地 Docker build 绕网络）
-pnpm-linuxstatic-arm64
